@@ -3,7 +3,7 @@
   "$id": "https://github.com/hec-ovi/earmark-skill/contracts/board.schema.json",
   "title": "Board payloads",
   "description": "Shapes returned by the board service: the `data` of every `earmark --json` envelope and every HTTP API response (docs/HTTP_API.md). Additive fields are MINOR (consumers ignore unknown fields); removal, rename, type change or meaning change is MAJOR.",
-  "x-contract-version": "1.1.0",
+  "x-contract-version": "1.2.0",
   "$defs": {
     "Key": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{0,9}-[1-9][0-9]*$", "description": "Issue key <PREFIX>-<id>." },
     "Handle": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
@@ -250,7 +250,7 @@
 
     "Event": {
       "type": "object",
-      "description": "One row per change. issue null = board-level event. old/new are display text.",
+      "description": "One row per change. issue null = board-level event. old/new are display text: join/rejoin new = '<profile> cli=<cli>' (rejoin: an agent that had left comes back through join); unblocked old = '<blocker key> <done|canceled>'; review_cap new = the rounds spent; review_reset old = the rounds cleared.",
       "required": ["id", "issue", "actor", "action", "old", "new", "at"],
       "additionalProperties": false,
       "properties": {
@@ -260,9 +260,10 @@
         "action": {
           "enum": ["created", "status", "title", "body", "priority", "type", "topic", "assignee",
                    "reviewer", "due", "labels", "parent", "link", "unlink", "rank", "claim", "release",
-                   "takeover", "review", "approve", "reject", "reopen", "topic_add", "topic_edit",
+                   "takeover", "review", "approve", "reject", "reopen", "unblocked", "review_cap",
+                   "review_reset", "attach", "detach", "topic_add", "topic_edit",
                    "topic_move", "topic_remove", "profile_add", "profile_edit", "profile_remove",
-                   "join", "leave", "delete", "config"]
+                   "join", "rejoin", "leave", "delete", "config"]
         },
         "old": { "type": ["string", "null"] },
         "new": { "type": ["string", "null"] },
@@ -372,6 +373,91 @@
         "holder": { "$ref": "#/$defs/Handle" },
         "lease_until": { "$ref": "#/$defs/Timestamp" },
         "status": { "$ref": "#/$defs/Status" }
+      }
+    },
+
+    "HandleConflict": {
+      "type": "object",
+      "description": "error.details of join --as HANDLE when HANDLE is another CLI's agent (code conflict): online, or offline under another profile. Joining with its profile while it is offline resumes it (event rejoin).",
+      "required": ["handle", "cli", "online", "profile"],
+      "additionalProperties": false,
+      "properties": {
+        "handle": { "$ref": "#/$defs/Handle" },
+        "cli": { "type": "string" },
+        "online": { "type": "boolean" },
+        "profile": { "type": ["string", "null"] }
+      }
+    },
+
+    "Check": {
+      "type": "object",
+      "description": "The actor's change feed (earmark check): only what others changed since its previous check or join, on issues it is assignee or reviewer of, issues assigned to it or taken from it, and comments anywhere that mention it. since: the previous check or join. changed: at most 10, those needing action first, then effective priority, then key; more counts the rest. cursor: the stored cursor after the call (advanced to the heads read at the start, unchanged with peek). pending_changes() is len(changed) + more without reading or writing anything else.",
+      "required": ["agent", "since", "holding", "todo_for_you", "changed", "more", "cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "agent": { "$ref": "#/$defs/Handle" },
+        "since": { "$ref": "#/$defs/Timestamp" },
+        "holding": { "type": "array", "items": { "$ref": "#/$defs/CheckHolding" } },
+        "todo_for_you": { "$ref": "#/$defs/Count", "description": "Issues next would hand the actor now (the review queue for reviewers)." },
+        "changed": { "type": "array", "items": { "$ref": "#/$defs/CheckIssue" } },
+        "more": { "$ref": "#/$defs/Count" },
+        "cursor": {
+          "type": "object",
+          "required": ["event_id", "comment_id"],
+          "additionalProperties": false,
+          "properties": {
+            "event_id": { "$ref": "#/$defs/Count" },
+            "comment_id": { "$ref": "#/$defs/Count" }
+          }
+        }
+      }
+    },
+
+    "CheckHolding": {
+      "type": "object",
+      "description": "An issue the actor holds (in_progress assignee, in_review reviewer). lease_left_min is 0 once the lease ran out.",
+      "required": ["key", "lease_until", "lease_left_min"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/Key" },
+        "lease_until": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "lease_left_min": { "$ref": "#/$defs/Count" }
+      }
+    },
+
+    "CheckIssue": {
+      "type": "object",
+      "description": "One changed issue as kinds of change and counts, never content. comments: new comments by others; questions: those of kind question or mentioning the actor; files: files others attached. action: assigned, rejected, unblocked, review_cap, takeover, or a question.",
+      "required": ["key", "priority", "effective_priority", "blocks_open", "action", "changes",
+                   "comments", "questions", "files"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/Key" },
+        "priority": { "$ref": "#/$defs/Priority" },
+        "effective_priority": { "$ref": "#/$defs/Priority" },
+        "blocks_open": { "$ref": "#/$defs/Count" },
+        "action": { "type": "boolean" },
+        "changes": { "type": "array", "items": { "$ref": "#/$defs/CheckChange" } },
+        "comments": { "$ref": "#/$defs/Count" },
+        "questions": { "$ref": "#/$defs/Count" },
+        "files": { "$ref": "#/$defs/Count" }
+      }
+    },
+
+    "CheckChange": {
+      "type": "object",
+      "description": "One kind of change, oldest first, by = who made it. status: first old and last new status since the cursor (left out when the same write is a reject, approve, unblock, review cap, takeover or assignment). unblocked: by_issue resolved the blocker. takeover: by took the actor's stale claim. field: field changed (old/new only for priority); links covers link and unlink.",
+      "required": ["kind", "by"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["assigned", "unassigned", "status", "rejected", "approved", "unblocked",
+                           "review_cap", "takeover", "field"] },
+        "by": { "$ref": "#/$defs/Handle" },
+        "old": { "type": ["string", "null"] },
+        "new": { "type": ["string", "null"] },
+        "by_issue": { "oneOf": [{ "$ref": "#/$defs/Key" }, { "type": "null" }] },
+        "field": { "enum": ["title", "body", "priority", "type", "topic", "due", "labels", "parent",
+                            "links", "assignee"] }
       }
     },
 

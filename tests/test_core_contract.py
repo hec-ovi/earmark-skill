@@ -113,9 +113,58 @@ class Contract(BoardCase):
             self.check("Profile", profile)
         self.check("Comment", b.edit_comment(b.add_comment(parent["key"], "x")["id"], "y"))
         self.check("Agent", w1.whoami()["agent"])
-        for name in ("backlog", "unassigned", "stale", "review_queue", "blocked", "overdue"):
+        for name in ("backlog", "unassigned", "stale", "review_queue", "blocked", "overdue",
+                     "review_cap"):
             for item in b.triage()[name]:
                 self.check("IssueSummary", item)
+
+    def test_check_feed_and_new_events(self):
+        import io
+
+        b = self.board
+        b.add_topic("api")
+        b.config("max_review_rounds", "1")
+        ui, qa = self.agent("claude-ui"), self.agent("codex-qa", "reviewer")
+        pm = self.agent("grok-pm", "pm")
+        key = self.issue("feature", priority="low")["key"]
+        ui.claim(key)
+        self.check("Check", ui.check())
+        dep = ui.need(key, "endpoint", topic="api")["created"]["key"]
+        pm.update_issue(key, priority="high", title="Feature")
+        b.attach(key, [("log.txt", io.BytesIO(b"trace"))])
+        pm.add_comment(key, "@claude-ui status?", kind="question")
+        b.move(dep, "done")
+        ui.claim(key)
+        ui.submit_review(key, note="ready")
+        qa.claim(key)
+        qa.reject(key, note="no")
+        b.assign(self.issue("assigned")["key"], "claude-ui")
+        self.clock.advance(minutes=200)
+        stale = self.issue("stale")["key"]
+        b.assign(stale, "claude-ui")
+        ui.claim(stale)
+        self.clock.advance(minutes=200)
+        pm.claim(stale)
+        feed = ui.check(peek=True)
+        self.check("Check", feed)
+        kinds = {c["kind"] for item in feed["changed"] for c in item["changes"]}
+        self.assertTrue({"assigned", "rejected", "unblocked", "review_cap", "takeover", "field"} <= kinds,
+                        kinds)
+        self.assertEqual(ui.pending_changes(), len(feed["changed"]) + feed["more"])
+        self.check("Check", ui.check())
+        ui.leave(keep=True)
+        self.open_as(None).join("worker", handle="claude-ui", cli="other")
+        self.open_as(None).join("worker", handle="claude-ui")
+        with self.assertRaises(Conflict) as taken:
+            self.open_as(None).join("worker", handle="claude-ui", cli="third")
+        self.check("HandleConflict", taken.exception.details)
+        b.move(key, "done")
+        b.reopen(key, note="again")
+        events = b.activity(limit=500)["items"]
+        for action in ("unblocked", "review_cap", "review_reset", "attach", "rejoin", "join"):
+            self.assertIn(action, {e["action"] for e in events})
+        for event in events:
+            self.check("Event", event)
 
     def test_error_details(self):
         w1, w2 = self.agent("w1"), self.agent("w2")
