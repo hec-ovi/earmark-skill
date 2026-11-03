@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Iterator
 
@@ -14,18 +13,18 @@ from earmark.errors import Forbidden, IdentityRequired, InvalidRequest, NotFound
 SEEN_THROTTLE_S = 60
 
 
-@dataclass
 class Tx:
-    """One write transaction: the connection, who acts, and the time it happens at."""
+    """One write transaction: the connection, who acts, and the time it happens at.
+    (A plain class: dataclasses would pull in `inspect` and cost ~15 ms of startup.)"""
 
-    conn: sqlite3.Connection
-    actor: str
-    now: datetime
-    ts: str
-    role: str | None
-    is_owner: bool
-    lease_minutes: int
-    require_review: bool
+    __slots__ = ("conn", "actor", "now", "ts", "role", "is_owner", "lease_minutes",
+                 "require_review")
+
+    def __init__(self, conn: sqlite3.Connection, actor: str, now: datetime, ts: str,
+                 role: str | None, is_owner: bool, lease_minutes: int, require_review: bool):
+        self.conn, self.actor, self.now, self.ts = conn, actor, now, ts
+        self.role, self.is_owner = role, is_owner
+        self.lease_minutes, self.require_review = lease_minutes, require_review
 
     @property
     def privileged(self) -> bool:
