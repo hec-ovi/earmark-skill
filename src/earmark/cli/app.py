@@ -91,7 +91,12 @@ class Context:
             from earmark.errors import InvalidRequest
             raise InvalidRequest(f"{what}: '-' reads stdin, but stdin is a terminal",
                                  hint="pipe the text in, or pass it as an argument")
-        return self.stdin.read()
+        try:
+            return self.stdin.read()
+        except UnicodeDecodeError as e:
+            from earmark.errors import InvalidRequest
+            raise InvalidRequest(f"{what}: stdin is not UTF-8 text (byte 0x{e.object[e.start]:02x})",
+                                 hint=UTF8_HINT) from None
 
     def read_text(self, value: str | None, file: str | None, what: str) -> str | None:
         """Inline text, `-` (stdin) or --*-file F (F may be '-'). Trailing whitespace trimmed."""
@@ -104,13 +109,19 @@ class Context:
         return text.rstrip()
 
 
+UTF8_HINT = "send UTF-8; in PowerShell first run $OutputEncoding = [Text.UTF8Encoding]::new()"
+
+
 def _read_file(path: str, what: str) -> str:
+    from earmark.errors import InvalidRequest
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:
             return f.read()
     except OSError as e:
-        from earmark.errors import InvalidRequest
         raise InvalidRequest(f"{what}: cannot read {path}: {e.strerror or e}") from None
+    except UnicodeDecodeError as e:
+        raise InvalidRequest(f"{what}: {path} is not UTF-8 text (byte 0x{e.object[e.start]:02x})",
+                             hint="save it as UTF-8") from None
 
 
 def _isatty(stream) -> bool:
@@ -148,14 +159,32 @@ def dump_json(obj: Any, pretty: bool) -> str:
 
 # ---- run --------------------------------------------------------------------------------
 
+def _is_utf8(stream) -> bool:
+    return (getattr(stream, "encoding", None) or "").lower().replace("-", "").replace("_", "") == "utf8"
+
+
 def _fix_encoding() -> None:
+    """Pipes and files speak UTF-8 whatever the locale: a Windows pipe defaults to the ANSI code
+    page, which prints non-cp1252 text as '?' and misreads piped UTF-8. Output never fails on a
+    character (errors='replace'); a console keeps its own encoding. Piped stdin decodes strictly
+    (utf-8-sig drops a BOM), so text that is not UTF-8 fails clearly instead of being stored as
+    mojibake."""
     for stream in (sys.stdout, sys.stderr):
-        enc = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
-        if enc != "utf8" and hasattr(stream, "reconfigure"):
-            try:
+        if not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            if not _isatty(stream):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            elif not _is_utf8(stream):
                 stream.reconfigure(errors="replace")
-            except (ValueError, OSError):
-                pass
+        except (ValueError, OSError):
+            pass
+    stdin = sys.stdin
+    if stdin is not None and hasattr(stdin, "reconfigure") and not _isatty(stdin):
+        try:
+            stdin.reconfigure(encoding="utf-8-sig", errors="strict")
+        except (ValueError, OSError):
+            pass
 
 
 def _write(stream, text: str) -> None:
