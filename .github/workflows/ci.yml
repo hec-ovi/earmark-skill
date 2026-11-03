@@ -3,10 +3,17 @@ name: ci
 on:
   push:
     branches: [main]
+    paths-ignore: ["docs/**", "README.md", "CHANGELOG.md", "evals/**"]
   pull_request:
+    paths-ignore: ["docs/**", "README.md", "CHANGELOG.md", "evals/**"]
 
 permissions:
   contents: read
+
+# A newer push cancels the run still going for an older one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
