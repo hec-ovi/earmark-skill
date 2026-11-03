@@ -52,6 +52,12 @@ sends no CORS headers.
 
 `Event`: `{"id", "issue": "GAME-42"|null, "actor", "action", "old", "new", "at"}`.
 
+`Attachment`: `{"id": 12, "issue": "GAME-42", "comment_id": 1187|null, "name": "eye-picker-bug.png",
+"mime": "image/png", "kind": "image|audio|video|pdf|text|file", "size": 188416, "sha256",
+"author", "created_at", "url": "/api/attachments/12/raw", "path": "<absolute path on disk>"}`.
+`IssueSummary` adds `attachment_count`; `Issue` adds `attachments: [Attachment]` (all of them,
+comment ones included); `Comment` adds `attachments: [Attachment]`.
+
 ## Routes
 
 | Method | Path | Body / query | Returns |
@@ -74,6 +80,11 @@ sends no CORS headers.
 | GET | `/api/issues/{key}/comments` | `?since=ID&limit=N` | `{items: [Comment], last_id, has_more}` |
 | POST | `/api/issues/{key}/comments` | `{body, kind?: note\|progress\|question, reply_to?}` (handoff, approval and changes come from the status actions) | `Comment` |
 | PATCH | `/api/comments/{id}` | `{body}` | `Comment` |
+| GET | `/api/issues/{key}/attachments` | | `[Attachment]` |
+| POST | `/api/issues/{key}/attachments` | raw file bytes as the body; `?name=<file name>&comment=<id>`; `Content-Type` = the file's type; `X-Earmark: 1`; up to `max_attachment_mb` | `Attachment` |
+| GET | `/api/attachments/{id}` | | `Attachment` |
+| GET | `/api/attachments/{id}/raw` | `Range` supported (206) for audio/video seeking | the bytes: inline for images (not SVG), audio, video, PDF and plain text; everything else as a download. Always `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `ETag` = sha256, `Cache-Control: private, max-age=31536000, immutable` |
+| DELETE | `/api/attachments/{id}` | | `{deleted: id}` |
 | GET | `/api/issues/{key}/events` | | `[Event]` |
 | GET | `/api/activity` | `?since=EVENT_ID&limit=N` | `{items: [Event], last_id}` newest first |
 | GET | `/api/team` | | `{agents: [Agent]}` |
