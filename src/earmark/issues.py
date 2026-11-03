@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from earmark import model, timeutil, views
-from earmark.errors import Conflict, InvalidRequest, NotFound
+from earmark.errors import Conflict, Forbidden, InvalidRequest, NotFound
 from earmark.service import Tx, require_text, subtree_sql
 
 EDITABLE = ("title", "body", "topic", "priority", "type", "due", "labels", "parent")
@@ -400,6 +400,8 @@ class IssuesMixin:
                         [*changes.values(), tx.ts, issue_id])
 
     def assign(self, key: str, handle: str | None) -> dict:
+        """Owner or pm. Unassigning in_progress work releases it (→ todo); unassigning an
+        in_review issue is refused (release or reject the review instead)."""
         with self._tx() as tx:
             self._require_privileged(tx, "assign issues")
             conn = tx.conn
@@ -407,10 +409,21 @@ class IssuesMixin:
             target = None
             if handle is not None and str(handle).strip().lower() not in ("", "none"):
                 target = self._agent_handle(conn, handle)
-            if target != row["assignee"]:
+            if target == row["assignee"]:
+                return self._detail(conn, row["id"])
+            if target is None and row["status"] == "in_review":
+                issue_key = self._key(row["id"])
+                raise Forbidden(f"{issue_key} is in review; its assignee stays until the review ends",
+                                hint=f"earmark reject {issue_key} -m \"<why>\"  (or earmark release "
+                                     f"{issue_key} to return the review)")
+            if target is None and row["status"] == "in_progress":
+                changes = self._status_changes(tx, row, "todo")
+                self._apply(tx, row["id"], changes)
+                self._status_events(tx, row, "todo", changes)
+            else:
                 changes: dict[str, Any] = {"assignee": target}
                 if row["status"] == "in_progress":
-                    changes["lease_until"] = tx.lease_until() if target else None
+                    changes["lease_until"] = tx.lease_until()
                 self._apply(tx, row["id"], changes)
                 self._event(tx, row["id"], "assignee", row["assignee"], target)
             return self._detail(conn, row["id"])

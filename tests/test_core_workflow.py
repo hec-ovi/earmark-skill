@@ -21,19 +21,21 @@ def actions(board, key):
 
 
 class Transitions(BoardCase):
-    def at(self, status: str) -> str:
+    def at(self, status: str, worker) -> str:
+        """An issue in `status` with no live holder other than worker (in_review: owner's work)."""
         key = self.issue(f"at {status}")["key"]
+        if status == "in_progress":
+            worker.claim(key)
+            return key
         for step in PATHS[status]:
             self.board.move(key, step)
-        if status in ("in_progress", "in_review"):  # leave no live holder in the way
-            self.board.assign(key, None)
         return key
 
     def test_table_for_regular_actors(self):
         worker = self.agent("w1")
         pairs = [(s, t) for s in model.STATUSES for t in model.STATUSES if s != t]
         for src, target in pairs:
-            key = self.at(src)
+            key = self.at(src, worker)
             allowed = target in model.TRANSITIONS[src]
             if src == "in_progress" and target == "done":
                 allowed = False  # require_review
@@ -235,6 +237,43 @@ class Assigned(BoardCase):
         with self.assertRaises(Empty):
             w2.next()
         self.assertEqual(w1.next()["key"], key)
+
+
+class Unassign(BoardCase):
+    def test_unassigning_in_progress_releases_it(self):
+        w1, w2 = self.agent("w1"), self.agent("w2")
+        key = self.issue("x")["key"]
+        w1.claim(key)
+        released = self.board.assign(key, None)
+        self.assertEqual((released["status"], released["assignee"], released["lease_until"]),
+                         ("todo", None, None))
+        self.assertEqual(actions(self.board, key)[-2:], ["status", "release"])
+        self.assertEqual(w2.next()["key"], key)
+
+    def test_unassigning_in_review_is_refused(self):
+        w1 = self.agent("w1")
+        key = self.issue("x")["key"]
+        w1.claim(key)
+        w1.submit_review(key, note="done")
+        with self.assertRaises(Forbidden) as ctx:
+            self.board.assign(key, "none")
+        self.assertIn("earmark reject", ctx.exception.hint)
+        self.assertEqual(self.board.assign(key, "owner")["assignee"], "owner")
+
+    def test_review_steps_need_an_assignee(self):
+        w1 = self.agent("w1")
+        orphan = self.issue("orphan", status="in_review")["key"]
+        with self.assertRaises(InvalidRequest):
+            w1.approve(orphan)
+        with self.assertRaises(InvalidRequest):
+            w1.reject(orphan, note="no")
+        started = self.issue("started", status="in_progress")["key"]
+        with self.board.conn:
+            self.board.conn.execute("UPDATE issues SET assignee = NULL WHERE id = ?",
+                                    (int(started.split("-")[1]),))
+        with self.assertRaises(InvalidRequest) as ctx:
+            self.board.submit_review(started, note="x")
+        self.assertIn("earmark claim", ctx.exception.hint)
 
 
 class Next(BoardCase):

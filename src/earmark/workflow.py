@@ -22,15 +22,16 @@ class WorkflowMixin:
 
     def submit_review(self, key: str, *, note: str) -> dict:
         note = require_text(note, "a handoff note (-m: what changed, how to verify)")
-        return self._moving(key, "in_review", note=note, kind="handoff")
+        return self._moving(key, "in_review", note=note, kind="handoff", need_assignee=True)
 
     def approve(self, key: str, *, note: str | None = None) -> dict:
         return self._moving(key, "done", note=(note or "").strip() or "Approved.", kind="approval",
-                            require="in_review")
+                            require="in_review", need_assignee=True)
 
     def reject(self, key: str, *, note: str) -> dict:
         note = require_text(note, "a note on what to change (-m)")
-        return self._moving(key, "todo", note=note, kind="changes", require="in_review")
+        return self._moving(key, "todo", note=note, kind="changes", require="in_review",
+                            need_assignee=True)
 
     def done(self, key: str, *, note: str | None = None) -> dict:
         return self._moving(key, "done", note=note, kind="note")
@@ -44,15 +45,19 @@ class WorkflowMixin:
         return self._moving(key, "canceled", note=note, kind="note")
 
     def _moving(self, key: str, target: str, *, note: str | None, kind: str,
-                require: str | tuple | None = None) -> dict:
+                require: str | tuple | None = None, need_assignee: bool = False) -> dict:
         with self._tx() as tx:
             row = self._issue_row(tx.conn, key)
+            issue_key = self._key(row["id"])
             if require is not None:
                 allowed = (require,) if isinstance(require, str) else require
                 if row["status"] not in allowed:
-                    raise InvalidRequest(f"{self._key(row['id'])} is {row['status']}, not "
-                                         f"{' or '.join(allowed)}",
-                                         hint=f"earmark show {self._key(row['id'])}")
+                    raise InvalidRequest(f"{issue_key} is {row['status']}, not "
+                                         f"{' or '.join(allowed)}", hint=f"earmark show {issue_key}")
+            if need_assignee and row["assignee"] is None:
+                raise InvalidRequest(f"{issue_key} has no assignee; review needs someone's work",
+                                     hint=f"earmark claim {issue_key}  (or a pm: earmark assign "
+                                          f"{issue_key} <handle>)")
             if kind == "note" and row["status"] == "in_review" and target == "done":
                 kind = "approval"
             self._move(tx, row, target, note=note, note_kind=kind)

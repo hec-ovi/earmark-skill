@@ -287,7 +287,8 @@ class Update(BoardCase):
         self.clock.advance(minutes=30)
         moved = self.board.assign(issue["key"], "pm-1")
         self.assertEqual((moved["assignee"], moved["lease_until"]), ("pm-1", "2026-11-03T11:30:00Z"))
-        self.assertIsNone(self.board.assign(issue["key"], None)["lease_until"])
+        unassigned = self.board.assign(issue["key"], None)
+        self.assertEqual((unassigned["status"], unassigned["lease_until"]), ("todo", None))
         self.assertIn("assignee", [e["action"] for e in self.board.issue_events(issue["key"])])
 
 
