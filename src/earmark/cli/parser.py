@@ -64,7 +64,8 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "export": ("Board", "JSON dump of the board to stdout"),
     "backup": ("Board", "consistent copy: DIR/earmark.db and DIR/files/"),
     "doctor": ("Board", "Python, SQLite, WAL, schema, board location and attachment file checks"),
-    "config": ("Board", "read or set require_review, lease_minutes, max_attachment_mb, prefix"),
+    "config": ("Board", "read or set require_review, lease_minutes, max_attachment_mb, "
+                        "max_review_rounds, prefix"),
 }
 SUBCOMMANDS = {"topic": ("add", "edit", "mv", "rm"), "profile": ("show", "add", "edit", "rm")}
 
@@ -583,7 +584,7 @@ def b_backup(p):
 
 def b_config(p):
     p.add_argument("key", nargs="?", metavar="KEY",
-                   help="require_review, lease_minutes, max_attachment_mb, prefix")
+                   help="require_review, lease_minutes, max_attachment_mb, max_review_rounds, prefix")
     p.add_argument("value", nargs="?", metavar="VALUE")
 
 

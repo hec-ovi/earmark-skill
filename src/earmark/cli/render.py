@@ -1047,17 +1047,18 @@ def render_check(res: dict, *, day: str | None = None) -> str:
 
 TRIAGE_SECTIONS = (("backlog", "untriaged backlog"), ("unassigned", "unassigned todo"),
                    ("offline", "assigned to offline agents"),
-                   ("stale", "stale claims"), ("review_queue", "review queue"),
+                   ("stale", "stale claims"), ("review_cap", "exhausted reviews"),
+                   ("review_queue", "review queue"),
                    ("blocked", "blocked"), ("overdue", "overdue"))
 # the call that lists a whole section when triage cuts it
 TRIAGE_MORE = {"backlog": "earmark ls -s backlog", "unassigned": "earmark ls -s todo -a none",
                "stale": "earmark ls --stale", "review_queue": "earmark ls -s in_review",
                "blocked": "earmark ls --blocked", "overdue": "earmark ls --overdue",
                "idle_agents": "earmark team"}
-TRIAGE_WHEN_ANY = ("offline",)  # in the counts line only when there are some
+TRIAGE_WHEN_ANY = ("offline", "review_cap")  # in the counts line only when there are some
 # columns every row of a section shares by definition
 TRIAGE_FIXED = {"backlog": ("status",), "unassigned": ("status", "assignee"),
-                "review_queue": ("status",)}
+                "review_queue": ("status",), "review_cap": ("status",)}
 TRIAGE_KEEP = ("key", "title", "flags")
 
 

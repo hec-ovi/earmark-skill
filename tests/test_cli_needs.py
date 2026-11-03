@@ -52,6 +52,19 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("offline", R.render_triage({"counts": {}}, day=DAY).splitlines()[0])
 
 
+    def test_triage_exhausted_reviews_section(self):
+        parked = summary(status="blocked", assignee="w1", comment_count=0, due=None)
+        res = {"stale": [summary(stale=True, comment_count=0, due=None)], "review_cap": [parked],
+               "blocked": [], "counts": {"stale": 1, "review_cap": 4}}
+        out = R.render_triage(res, day=DAY).splitlines()
+        self.assertIn("stale claims 1 · exhausted reviews 4 · review queue", out[0])
+        i = out.index("exhausted reviews (4):")
+        self.assertGreater(i, out.index("stale claims (1):"))
+        self.assertNotIn("STATUS", out[i + 1].split())  # blocked on every row
+        self.assertEqual(out[i + 3], "+3 more: earmark triage --limit 4")
+        self.assertNotIn("exhausted", R.render_triage({"counts": {}}, day=DAY).splitlines()[0])
+
+
 class ArgumentTests(unittest.TestCase):
     def test_need_maps_flags(self):
         with fake_board(need=NEED) as boards:
