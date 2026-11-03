@@ -179,11 +179,13 @@ LS_COLUMNS: dict[str, tuple[str, Callable[[dict], Any]]] = {
     "comment_count": ("C", lambda i: i.get("comment_count")),
     "last_comment_id": ("LAST", lambda i: f"#{i['last_comment_id']}" if i.get("last_comment_id") else None),
     "lease_until": ("LEASE", lambda i: i.get("lease_until")),
+    "waiting": ("WAITING", lambda i: i.get("waiting")),
     "blocked": ("BLOCKED", lambda i: i.get("blocked")),
     "stale": ("STALE", lambda i: i.get("stale")),
     "created_at": ("CREATED", lambda i: i.get("created_at")),
     "updated_at": ("UPDATED", lambda i: i.get("updated_at")),
 }
+LS_INTERNAL = {"waiting"}   # triage-only column
 LS_ALIASES = {"prio": "priority", "comments": "comment_count", "c": "comment_count",
               "created": "created_at", "updated": "updated_at", "lease": "lease_until",
               "sub": "children", "label": "labels", "last_comment": "last_comment_id"}
@@ -199,7 +201,7 @@ def ls_fields(spec: str | None) -> list[str]:
         if not name:
             continue
         name = LS_ALIASES.get(name, name)
-        if name != "flags" and name not in LS_COLUMNS:
+        if name != "flags" and (name not in LS_COLUMNS or name in LS_INTERNAL):
             raise ValueError(raw.strip())
         if name not in out:
             out.append(name)
@@ -322,7 +324,7 @@ def comments_summary(issue: dict) -> str:
     if n and issue.get("last_comment_id"):
         text += f", last #{issue['last_comment_id']}"
     new = issue.get("new_comments")
-    if new is not None:
+    if n and new is not None:
         text += f", {new} new for you"
     return text
 
@@ -722,38 +724,66 @@ def render_whoami(res: dict, *, style: Style = PLAIN, day: str | None = None) ->
     return "\n".join(lines)
 
 
-def render_triage(res: dict, *, style: Style = PLAIN, day: str | None = None) -> str:
-    """Sections in board order; issue lists as compact tables, agents by handle."""
+TRIAGE_SECTIONS = (("backlog", "untriaged backlog"), ("unassigned", "unassigned todo"),
+                   ("stale", "stale claims"), ("review_queue", "review queue"),
+                   ("blocked", "blocked"), ("overdue", "overdue"))
+
+
+def render_triage(res: dict, *, style: Style = PLAIN, day: str | None = None,
+                  now: float | None = None) -> str:
+    """PM view: one counts line, then an aligned table per non-empty section (issues with the
+    ls columns, review queue adds WAITING, stale claims add LEASE; idle agents like `team`)."""
     if not isinstance(res, dict):
         return dash(res)
-    out: list[str] = []
-    for name, value in res.items():
-        title = name.replace("_", " ")
-        if isinstance(value, list):
-            out.append(f"{title} ({len(value)}):" if value else f"{title}: none")
-            if value and all(isinstance(v, dict) and "key" in v for v in value):
-                out += ["  " + ln for ln in summary_rows(value, style=style, day=day)]
-            elif value:
-                out += ["  " + _scalar(v) for v in value]
-        elif isinstance(value, dict):
-            out.append(f"{title}: {_scalar(value)}")
-        else:
-            out.append(f"{title}: {dash(value)}")
-    return "\n".join(out) or "triage: nothing to do"
+    counts = res.get("counts") or {}
+    head = [f"{label} {counts.get(name, len(res.get(name) or []))}"
+            for name, label in TRIAGE_SECTIONS]
+    head.append(f"idle agents {counts.get('idle_agents', len(res.get('idle_agents') or []))}")
+    out = ["triage: " + SEP.join(head)]
+    since = res.get("review_since") or {}
+    base = [f for f in LS_DEFAULT]
+    for name, label in TRIAGE_SECTIONS:
+        items = res.get(name) or []
+        if not items:
+            continue
+        total = counts.get(name, len(items))
+        shown = f" (showing {len(items)})" if total > len(items) else ""
+        out += ["", f"{label} ({total}){shown}:"]
+        fields = list(base)
+        if name == "review_queue":
+            items = [dict(i, waiting=ago(since.get(i.get("key")), now)) for i in items]
+            fields.insert(fields.index("assignee") + 1, "waiting")
+        elif name == "stale":
+            fields.insert(fields.index("assignee") + 1, "lease_until")
+        out += summary_rows(items, style=style, day=day, fields=fields)
+    idle = res.get("idle_agents") or []
+    if idle:
+        total = counts.get("idle_agents", len(idle))
+        out += ["", f"idle agents ({total}):"]
+        rows = [[dash(a.get("handle")), dash(a.get("role") or a.get("kind")), dash(a.get("profile")),
+                 dash(a.get("cli")), ago(a.get("last_seen"), now), dash(a.get("presence"))] for a in idle]
+        cols = [("HANDLE", style.bold), ("ROLE", None), ("PROFILE", None), ("CLI", None),
+                ("SEEN", None), ("STATE", None)]
+        out += table(cols, rows, style)
+    if all(not res.get(n) for n, _ in TRIAGE_SECTIONS) and not idle:
+        out.append("nothing to triage")
+    return "\n".join(out)
 
 
 def render_info(res: dict) -> str:
+    """`earmark info`: where the board is, what it holds, who is on it."""
     if not isinstance(res, dict):
         return dash(res)
-    lines = []
-    if res.get("path"):
-        lines.append(f"board: {res['path']}")
-    head = [f"{k}: {dash(res[k])}" for k in ("prefix", "owner", "schema_version") if k in res]
-    if head:
-        lines.append(SEP.join(head))
+    lines = [f"board: {dash(res.get('path'))}"]
+    head = [f"prefix: {dash(res.get('prefix'))}", f"owner: {dash(res.get('owner'))}"]
+    if res.get("schema_version") is not None:
+        head.append(f"schema: {res['schema_version']}")
+    if res.get("created_at"):
+        head.append(f"created: {res['created_at']}")
+    lines.append(SEP.join(head))
     settings = res.get("settings")
     if isinstance(settings, dict) and settings:
-        lines.append("settings: " + " ".join(f"{k}={dash(v)}" for k, v in settings.items()))
+        lines.append("settings: " + SEP.join(f"{k} {dash(v)}" for k, v in settings.items()))
     counts = res.get("counts")
     if isinstance(counts, dict):
         by = counts.get("by_status") or {}
@@ -761,42 +791,52 @@ def render_info(res: dict) -> str:
                  f"{counts.get('open', 0)} open"]
         parts += [f"{s} {n}" for s, n in by.items() if n]
         lines.append(SEP.join(parts))
-    agents = res.get("agents") if "agents" in res else res.get("agents_online")
-    if agents is not None:
-        if isinstance(agents, list):
-            lines.append(f"agents online: {len(agents)}" + (f" ({_keys(agents)})" if agents else ""))
-        elif isinstance(agents, dict):
-            lines.append("agents: " + " ".join(f"{k}={dash(v)}" for k, v in agents.items()))
-        else:
-            lines.append(f"agents online: {agents}")
-    sizes = res.get("sizes") or res.get("files")
-    if isinstance(sizes, dict) and sizes:
-        lines.append("files: " + SEP.join(f"{k} {human_size(v)}" for k, v in sizes.items()))
-    known = {"path", "prefix", "owner", "schema_version", "settings", "counts", "agents",
-             "agents_online", "sizes", "files"}
-    rest = {k: v for k, v in res.items() if k not in known}
-    if rest:
-        lines.append(render_kv(rest))
+    team = []
+    agents = res.get("agents")
+    if isinstance(agents, dict):
+        team.append(f"agents: {agents.get('online', 0)} online of {agents.get('total', 0)}")
+    elif isinstance(agents, list):
+        team.append(f"agents online: {len(agents)}" + (f" ({_keys(agents)})" if agents else ""))
+    elif agents is not None:
+        team.append(f"agents online: {agents}")
+    if isinstance(res.get("topics"), int):
+        team.append(f"topics: {res['topics']}")
+    if team:
+        lines.append(SEP.join(team))
+    files = res.get("files") or res.get("sizes")
+    if isinstance(files, dict) and files:
+        lines.append("files: " + SEP.join(f"{k} {human_size(v)}" for k, v in files.items()))
+    versions = [f"{label} {res[k]}" for k, label in (("version", "earmark"), ("contract_version", "contract"),
+                                                    ("sqlite_version", "sqlite")) if res.get(k)]
+    if versions:
+        lines.append("versions: " + SEP.join(versions))
     return "\n".join(lines)
 
 
+WAIT_NEXT = {"work": "earmark next", "review": "earmark next --review", "inbox": "earmark inbox"}
+
+
 def render_wait(hit: Any) -> str:
+    """What arrived, and the command that takes it."""
     if not isinstance(hit, dict):
         return f"wait: {dash(hit)}"
-    parts = [f"wait: {hit.get('reason') or 'something arrived'}"]
+    reason = hit.get("reason") or "something arrived"
+    parts = [f"wait: {reason}"]
     issue = hit.get("issue") if isinstance(hit.get("issue"), dict) else None
     key = (issue or {}).get("key") or (hit.get("key") if isinstance(hit.get("key"), str) else None)
     title = (issue or {}).get("title") or hit.get("title")
     if key:
         parts.append(f"{key} {title}" if title else key)
+    if isinstance(hit.get("count"), int):
+        parts.append(f"{hit['count']} new" if reason == "inbox" else f"count: {hit['count']}")
     for k, v in hit.items():
-        if k in ("reason", "issue", "key", "title", "hint") or isinstance(v, (dict, list)):
+        if k in ("reason", "issue", "key", "title", "hint", "count") or isinstance(v, (dict, list)):
             continue
         parts.append(f"{k.replace('_', ' ')}: {dash(v)}")
-    text = SEP.join(parts)
-    if hit.get("hint"):
-        text += f"\nhint: {hit['hint']}"
-    return text
+    nxt = hit.get("hint") or WAIT_NEXT.get(reason)
+    if nxt:
+        parts.append(f"next: {nxt}")
+    return SEP.join(parts)
 
 
 def render_backup(res: Any, dest: str) -> str:

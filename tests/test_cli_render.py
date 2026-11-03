@@ -245,9 +245,12 @@ class MiscTests(unittest.TestCase):
                                             "doctor: 1 of 2 checks ok"])
 
     def test_wait(self):
-        self.assertEqual(R.render_wait({"reason": "work", "issue": summary()}),
-                         "wait: work · GAME-42 Eye color widget resets on reload")
-        self.assertEqual(R.render_wait({"reason": "inbox", "count": 2}), "wait: inbox · count: 2")
+        self.assertEqual(R.render_wait({"reason": "work", "key": "GAME-42", "title": "Eye color"}),
+                         "wait: work · GAME-42 Eye color · next: earmark next")
+        self.assertEqual(R.render_wait({"reason": "review", "issue": summary()}),
+                         "wait: review · GAME-42 Eye color widget resets on reload · next: earmark next --review")
+        self.assertEqual(R.render_wait({"reason": "inbox", "count": 2}),
+                         "wait: inbox · 2 new · next: earmark inbox")
 
     def test_dash(self):
         self.assertEqual(R.dash(None), "-")
@@ -263,14 +266,48 @@ class MiscTests(unittest.TestCase):
 
     def test_kv_and_info(self):
         info = {"path": "/x/.earmark/earmark.db", "prefix": "GAME", "owner": "hector",
+                "created_at": "2026-11-01T00:00:00Z", "schema_version": 1,
+                "settings": {"require_review": True, "lease_minutes": 120},
                 "counts": {"by_status": {"todo": 2, "done": 1}, "open": 2, "total": 3},
-                "agents_online": ["a", "b"], "sizes": {"db": 4096, "wal": 0}}
+                "agents": {"online": 2, "total": 3}, "topics": 5, "heads": {"event_id": 9},
+                "files": {"db": 4096, "wal": 0}, "enums": {"statuses": ["todo"]},
+                "version": "0.1.0", "contract_version": "1.0.0", "sqlite_version": "3.46.1"}
         self.assertEqual(R.render_info(info).splitlines(), [
-            "board: /x/.earmark/earmark.db", "prefix: GAME · owner: hector",
-            "issues: 3 total, 2 open · todo 2 · done 1", "agents online: 2 (a, b)",
-            "files: db 4.0 KB · wal 0 B"])
+            "board: /x/.earmark/earmark.db",
+            "prefix: GAME · owner: hector · schema: 1 · created: 2026-11-01T00:00:00Z",
+            "settings: require_review true · lease_minutes 120",
+            "issues: 3 total, 2 open · todo 2 · done 1", "agents: 2 online of 3 · topics: 5",
+            "files: db 4.0 KB · wal 0 B", "versions: earmark 0.1.0 · contract 1.0.0 · sqlite 3.46.1"])
         self.assertEqual(R.render_kv({"require_review": True, "lease_minutes": 120}),
                          "require_review: true\nlease_minutes: 120")
+
+    def test_triage(self):
+        res = {"backlog": [], "unassigned": [summary_51(blocked=False)],
+               "stale": [summary(stale=True, comment_count=0, due=None)],
+               "review_queue": [summary(status="in_review", lease_until=None)],
+               "review_since": {"GAME-42": "2026-11-03T14:00:00Z"}, "blocked": [], "overdue": [],
+               "idle_agents": [{"handle": "grok-pm", "role": "worker", "profile": "worker", "cli": "grok",
+                                "presence": "idle", "last_seen": "2026-11-03T15:00:00Z"}],
+               "counts": {"backlog": 0, "unassigned": 1, "stale": 1, "review_queue": 1, "blocked": 0,
+                          "overdue": 0, "idle_agents": 1}}
+        out = R.render_triage(res, day=DAY, now=TEAM_NOW).splitlines()
+        self.assertEqual(out[0], "triage: untriaged backlog 0 · unassigned todo 1 · stale claims 1 · "
+                                 "review queue 1 · blocked 0 · overdue 0 · idle agents 1")
+        self.assertEqual(out[1:5], ["", "unassigned todo (1):",
+                                    "KEY      STATUS  PRIO    TYPE  ASSIGNEE  TOPIC              TITLE",
+                                    "GAME-51  todo    medium  task  -         ui-ux/video-calls  Mute button state"])
+        self.assertEqual(out[6], "stale claims (1):")
+        self.assertEqual(out[7].split()[:7], ["KEY", "STATUS", "PRIO", "TYPE", "ASSIGNEE", "LEASE", "TOPIC"])
+        self.assertTrue(out[8].endswith("Eye color widget resets on reload  stale"))
+        self.assertEqual(out[10], "review queue (1):")
+        self.assertEqual(out[11].split(), ["KEY", "STATUS", "PRIO", "TYPE", "ASSIGNEE", "WAITING", "TOPIC", "TITLE"])
+        self.assertEqual(out[12].split()[:6], ["GAME-42", "in_review", "high", "bug", "claude-ui", "2h"])
+        self.assertEqual(out[14:], ["idle agents (1):", "HANDLE   ROLE    PROFILE  CLI   SEEN  STATE",
+                                    "grok-pm  worker  worker   grok  1h    idle"])
+        self.assertFalse(any("=" in ln for ln in out))
+        empty = {k: [] for k in ("backlog", "unassigned", "stale", "review_queue", "blocked",
+                                 "overdue", "idle_agents")}
+        self.assertEqual(R.render_triage(empty).splitlines()[-1], "nothing to triage")
 
 
 if __name__ == "__main__":
