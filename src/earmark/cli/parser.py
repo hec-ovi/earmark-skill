@@ -539,6 +539,9 @@ def parse(argv: list[str]) -> tuple[str, argparse.Namespace]:
     """Return (command name for meta, namespace). Raises InvalidRequest or ParseExit."""
     cmd, _sub_name = scan(argv)
     if cmd is None:
+        asked = any(a in ("-h", "--help", "--version") for a in argv)
+        if wants_json(argv) and not asked:
+            raise InvalidRequest("no command given", hint="earmark -h")
         if "--version" in argv:
             from earmark import __version__
             sys.stdout.write(f"earmark {__version__}\n")

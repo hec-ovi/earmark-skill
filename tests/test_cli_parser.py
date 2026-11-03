@@ -119,7 +119,7 @@ class ParseTests(unittest.TestCase):
             self.assertLess(len(out.getvalue().splitlines()), 60, cmd)
 
     def test_top_help(self):
-        for argv in ([], ["-h"], ["--help"], ["-h", "ls"], ["--json"]):
+        for argv in ([], ["-h"], ["--help"], ["-h", "ls"], ["--json", "-h"]):
             out = io.StringIO()
             with self.assertRaises(P.ParseExit) as cm, contextlib.redirect_stdout(out):
                 parse(*argv)
@@ -138,6 +138,11 @@ class ParseTests(unittest.TestCase):
         for subs in P.SUBCOMMANDS.values():
             for sub in subs:
                 self.assertIn(sub, listed)
+
+    def test_json_without_command_is_an_error(self):
+        with self.assertRaises(InvalidRequest) as cm:
+            parse("--json")
+        self.assertEqual(cm.exception.message, "no command given")
 
     def test_version(self):
         out = io.StringIO()
