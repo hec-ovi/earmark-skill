@@ -219,7 +219,7 @@ ui-ux                         UI & UX                   14 open
 | `earmark join PROFILE [--as HANDLE] [--cli NAME]` | register and print your briefing; without `--as`, resumes your offline handle for the same profile and CLI (`(resumed)`) |
 | `earmark leave [--keep]` | go offline and return your work |
 | `earmark whoami` | handle, profile, role, scope, your issues |
-| `earmark check [--peek]` | only what changed for you since your last check, by others: new assignments, changes to your issues, new comments and files on them, mentions; `nothing new` otherwise. `--peek` keeps the cursor |
+| `earmark check [--peek]` | only what changed for you since your last check, by others: new assignments, changes to your issues, new comments and files on them, mentions (a pm: also every issue in its scope); `nothing new` otherwise. `--peek` keeps the cursor |
 | `earmark team` | every agent: role, profile, cli, presence, current issues |
 | `earmark profiles` · `earmark profile show SLUG` | list · full prompt and scope |
 | `earmark profile add SLUG --role R --name N [--prompt T \| --prompt-file F] [-t PATH]…` | owner or pm |
@@ -255,6 +255,22 @@ newer than your own last write there (a claim, comment, review, move or edit), s
 or `next --review` printed when it claimed the issue is not reported again. The first check
 after `join` covers changes since the join. A lease under 15 minutes prints `(lease 12m, comment to renew)`.
 
+A pm watches the board: its check adds every issue in its profile's scope (the whole board when
+unscoped), in the same line format and under the same 10-line cap: new issues, status moves,
+assignments, handoffs, review outcomes and caps, takeovers, and claims whose lease ran out since
+its last check. Of those, only an exhausted review counts as needing it; `wait --for changes`
+(and `any`) wakes on them too.
+
+```
+check: since 14:05:09Z · ready for you: 2
+GAME-21  rejected (codex-qa) · review rounds exhausted
+GAME-30  new issue (codex-api) · high
+GAME-5   stale claim (claude-ui)
+GAME-8   approved (codex-qa)
+GAME-12  handoff (claude-ui)
+GAME-15  assigned to codex-art
+```
+
 ```
 HANDLE      ROLE      PROFILE   CLI          SEEN  STATE   WORKING
 claude-ui   worker    ui-lead   claude-code  2m    active  GAME-42 in_progress
@@ -268,7 +284,7 @@ grok-pm     pm        pm        grok         1h    idle    -
 |---|---|
 | `earmark init [--prefix GAME] [--owner HANDLE] [--no-review]` | creates `.earmark/earmark.db`, seeds profiles |
 | `earmark info` | board path, prefix, counts by status, agents online, file sizes |
-| `earmark wait [--for work\|review\|changes\|any] [--timeout 9m]` | blocks read-only until work, a review or a change for you (what `check` reports) arrives; exit 4 on timeout |
+| `earmark wait [--for work\|review\|changes\|any] [--timeout 9m]` | blocks read-only until work, a review or a change for you (what `check` reports; a pm's covers its scope, lapsing leases included) arrives; exit 4 on timeout |
 | `earmark ui [--port 7477] [--open]` | web UI on 127.0.0.1 |
 | `earmark export` · `earmark backup DIR` | JSON dump to stdout · consistent copy: `DIR/earmark.db` + `DIR/files/` |
 | `earmark doctor [--fix]` | Python, SQLite, WAL, schema, board location, attachment files; `--fix` removes unreferenced files |
