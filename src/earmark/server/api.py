@@ -197,6 +197,9 @@ def edit_topic(r: Request) -> dict:
     if not b:
         raise InvalidRequest("nothing to change",
                              hint="send one of: name, icon, description, path, position, archived")
+    for name in ("icon", "description"):
+        if name in b and b[name] is None:
+            b[name] = ""  # null clears; the board reads None as "unchanged"
     result = None
     if "path" in b:
         result = r.board.move_topic(ref, b.pop("path"))

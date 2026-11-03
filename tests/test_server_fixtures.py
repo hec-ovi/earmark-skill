@@ -195,10 +195,11 @@ class ServerHarness:
     """Run make_server() on an ephemeral port in a background thread."""
 
     def __init__(self, db_path: str | None = None, *, board_factory=None, ui_dir: str | None = None,
-                 poll_interval: float = 0.1, ping_interval: float = 25.0, max_streams: int = 32) -> None:
+                 poll_interval: float = 0.1, ping_interval: float = 25.0, max_streams: int = 32,
+                 verbose: bool = False) -> None:
         self.server = make_server(db_path, host="127.0.0.1", port=0, board_factory=board_factory,
                                   ui_dir=ui_dir, poll_interval=poll_interval,
-                                  ping_interval=ping_interval, max_streams=max_streams)
+                                  ping_interval=ping_interval, max_streams=max_streams, verbose=verbose)
         self.port = self.server.port
         self.host = f"127.0.0.1:{self.port}"
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05},

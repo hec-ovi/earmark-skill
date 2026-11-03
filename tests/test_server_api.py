@@ -150,6 +150,10 @@ class TopicRouteTests(FakeServerCase):
         self.call("PATCH", "/api/topics/3", {"path": "engine/gfx2", "name": "Graphics"})
         self.assertEqual(self.store.names()[-2:], ["move_topic", "edit_topic"])
 
+    def test_edit_null_clears_icon_and_description(self):
+        self.call("PATCH", "/api/topics/3", {"icon": None, "description": None})
+        self.assertEqual(self.store.last("edit_topic"), ((3,), {"icon": "", "description": ""}))
+
     def test_edit_by_encoded_path(self):
         self.call("PATCH", "/api/topics/ui-ux%2Fhud", {"name": "HUD"})
         self.assertEqual(self.store.last("edit_topic")[0], ("ui-ux/hud",))
@@ -389,6 +393,34 @@ class TeamRouteTests(FakeServerCase):
         data = self.assertEnvelopeOk(self.call("DELETE", "/api/profiles/qa"))
         self.assertEqual(data, {"deleted": "qa"})
         self.assertEqual(self.store.last("remove_profile")[0], ("qa",))
+
+
+class LoggingTests(unittest.TestCase):
+    def _run(self, verbose: bool) -> str:
+        import contextlib
+        import io
+
+        from tests.test_server_fixtures import FakeStore, ServerHarness
+
+        store = FakeStore()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            h = ServerHarness(board_factory=store.factory, verbose=verbose)
+            try:
+                h.request("GET", "/api/board")
+                h.request("GET", "/api/nope")
+                h.request("POST", "/api/issues", {"title": "x"})
+            finally:
+                h.stop()
+        return err.getvalue()
+
+    def test_quiet_by_default(self):
+        self.assertEqual(self._run(False), "")
+
+    def test_verbose_logs_requests(self):
+        out = self._run(True)
+        self.assertIn("GET /api/board", out)
+        self.assertIn("POST /api/issues", out)
 
 
 if __name__ == "__main__":
