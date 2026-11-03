@@ -9,11 +9,11 @@ authoring guidance as of November 2026.
 | Level | What | Loaded | This skill |
 |---|---|---|---|
 | 1 Metadata | `name` + `description` | every session, for every installed skill | 717 chars, about 180 tokens (limit 1024 chars) |
-| 2 Instructions | `SKILL.md` body | when the skill activates | 86 lines, about 1.3k tokens (spec guidance: under 500 lines and 5k tokens) |
+| 2 Instructions | `SKILL.md` body | when the skill activates | 88 lines, about 1.3k tokens (spec guidance: under 500 lines and 5k tokens) |
 | 3 References | `references/commands.md`, `references/workflow.md` | only when the body sends the agent there | about 2.2k and 0.9k tokens |
 | Briefing | profile prompt + role loop | printed by `earmark join` | about 0.4k tokens per role |
 
-A full activation costs about 1.5k tokens. The test suite holds the body to 100 lines and
+A full activation (frontmatter and body) costs about 1.6k tokens. The test suite holds the body to 100 lines and
 2.5k tokens so it cannot grow quietly.
 
 ## Frontmatter
