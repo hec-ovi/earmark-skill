@@ -8,7 +8,9 @@ alignment never depends on the terminal. Bodies (descriptions, comments, prompts
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Iterable
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Any, Callable, Iterable
 
 SEP = " · "
 TOPIC_WIDTH = 29          # ls TOPIC column cap (commands.md sample)

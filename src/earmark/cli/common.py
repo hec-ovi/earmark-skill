@@ -4,7 +4,9 @@ earmark.errors."""
 
 from __future__ import annotations
 
-from typing import Any
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Any
 
 from earmark.errors import EarmarkError, InvalidRequest
 

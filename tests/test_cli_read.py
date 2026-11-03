@@ -54,6 +54,8 @@ class LsTests(unittest.TestCase):
         with fake_board(list_issues={"items": [summary()], "total": 212, "limit": 1, "offset": 0}) as boards:
             code, out, _ = run_main(["ls", "--count", "-s", "all"])
         self.assertEqual((code, out), (0, "212\n"))
+        kw = boards[0].called("list_issues")[0][1]
+        self.assertEqual((kw["status"], kw["limit"], kw["offset"]), ("all", 1, 0))
         with fake_board(list_issues={"items": [], "total": 7, "limit": 1, "offset": 0}):
             _, out, _ = run_main(["ls", "--count", "--json"])
         self.assertEqual(json.loads(out)["data"], {"total": 7})

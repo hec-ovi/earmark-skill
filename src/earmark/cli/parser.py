@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Callable
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Callable
 
 from earmark.errors import InvalidRequest
 

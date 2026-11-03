@@ -135,7 +135,7 @@ class ParseTests(unittest.TestCase):
         listed = set(P.TOP_HELP.replace("|", " ").split())
         for cmd in P.COMMANDS:
             self.assertIn(cmd, listed)
-        for cmd, subs in P.SUBCOMMANDS.items():
+        for subs in P.SUBCOMMANDS.values():
             for sub in subs:
                 self.assertIn(sub, listed)
 
