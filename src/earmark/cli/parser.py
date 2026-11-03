@@ -209,7 +209,7 @@ def _body(p) -> None:
 
 def b_topics(p):
     p.add_argument("path", nargs="?", metavar="PATH", help="subtree root")
-    p.add_argument("--depth", type=int, metavar="N", help="levels below the root")
+    p.add_argument("--depth", type=int, metavar="N", help="levels to show (1: only the top)")
     p.add_argument("--all", action="store_true", help="include archived topics")
 
 
