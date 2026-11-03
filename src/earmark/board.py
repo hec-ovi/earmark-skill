@@ -9,153 +9,131 @@ Contract (frozen for v0.1; additive changes only):
 - Field edits: only keys present in **fields change; a value of None clears nullable fields
   (due, parent, topic).
 - Writes require an actor (see ARCHITECTURE.md, Identity) and run in db.write().
+
+The methods live in focused modules and are composed here:
+
+| Module | Methods |
+|---|---|
+| issues.py | list_issues, get_issue, issue_events, activity, create_issue, update_issue, assign, rank, link, unlink, delete_issue |
+| workflow.py | move, claim, release, next, submit_review, approve, reject, done, reopen, cancel |
+| comments.py | add_comment, edit_comment, list_comments, inbox |
+| topics.py | topics, add_topic, edit_topic, move_topic, remove_topic |
+| team.py | profiles, get_profile, add_profile, edit_profile, remove_profile, join, leave, whoami, team, triage, wait_check |
+| admin.py | info, config, doctor, export, backup, data_version, heads |
+
+A Board holds one SQLite connection; use one Board per thread (or serialize calls).
 """
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+import os
+
+from earmark import db as _db
+from earmark import model, seed, timeutil
+from earmark.admin import AdminMixin
+from earmark.comments import CommentsMixin
+from earmark.errors import InvalidRequest
+from earmark.issues import IssuesMixin
+from earmark.service import BoardBase
+from earmark.team import TeamMixin
+from earmark.topics import TopicsMixin
+from earmark.workflow import WorkflowMixin
 
 
-class Board:
+class Board(IssuesMixin, WorkflowMixin, CommentsMixin, TopicsMixin, TeamMixin, AdminMixin,
+            BoardBase):
     # ---- lifecycle ---------------------------------------------------------------------
-    path: str
-    prefix: str
-    owner: str
-    actor: str | None
 
     @classmethod
-    def open(cls, db: str | None = None, actor: str | None = None, *, cwd: str | None = None) -> "Board":
+    def open(cls, db: str | None = None, actor: str | None = None, *,
+             cwd: str | None = None) -> "Board":
         """Discover and open a board (see ARCHITECTURE.md, Storage). Raises NoBoard."""
-        raise NotImplementedError
+        path = _db.find_board(db, cwd=cwd)
+        return cls(path, _db.open_board(path), actor)
 
     @classmethod
     def init(cls, directory: str, *, prefix: str | None = None, owner: str | None = None,
              require_review: bool = True) -> "Board":
         """Create <directory>/.earmark/earmark.db, seed profiles, create the owner agent."""
-        raise NotImplementedError
+        root = os.path.abspath(directory)
+        if not os.path.isdir(root):
+            raise InvalidRequest(f"{root} is not a directory")
+        board_dir = os.path.join(root, _db.DIR_NAME)
+        path = os.path.join(board_dir, _db.DB_NAME)
+        if os.path.exists(path):
+            raise InvalidRequest(f"a board already exists at {path}", hint="earmark info")
+        prefix = model.parse_prefix(prefix) if prefix else model.default_prefix(os.path.basename(root))
+        owner = model.parse_handle(owner, "owner handle") if owner else default_owner(root)
+        os.makedirs(board_dir, exist_ok=True)
+        ignore = os.path.join(board_dir, ".gitignore")
+        if not os.path.exists(ignore):
+            with open(ignore, "w", encoding="utf-8") as fh:
+                fh.write("*\n")
+        conn = _db.create(path)
+        with _db.write(conn):
+            _seed_board(conn, prefix=prefix, owner=owner, require_review=require_review)
+        return cls(path, conn, owner)
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        conn, self.conn = getattr(self, "conn", None), None
+        if conn is not None:
+            conn.close()
 
-    def set_actor(self, handle: str | None) -> None:
-        """Set the acting handle for subsequent calls (validated lazily on first write)."""
-        raise NotImplementedError
+    def __enter__(self) -> "Board":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
 
     def touch(self) -> None:
         """Refresh agents.last_seen for the actor, at most once per 60 s. No-op without actor."""
-        raise NotImplementedError
+        if not self.actor:
+            return
+        now = timeutil.now()
+        if self._seen_checked and timeutil.parse_iso(self._seen_checked) > now - _seen_window():
+            return
+        row = self.conn.execute("SELECT last_seen FROM agents WHERE handle = ?",
+                                (self.actor,)).fetchone()
+        if row is None:
+            return
+        if timeutil.parse_iso(row[0]) <= now - _seen_window():
+            with _db.write(self.conn) as conn:
+                self._refresh_seen(conn, self.actor, row[0], now)
+        else:
+            self._seen_checked = timeutil.iso(now)
 
-    # ---- board -------------------------------------------------------------------------
-    def info(self) -> dict: raise NotImplementedError
-    def config(self, key: str | None = None, value: str | None = None) -> dict: raise NotImplementedError
-    def doctor(self) -> list[dict]: raise NotImplementedError          # [{name, ok, detail}]
-    def export(self) -> dict: raise NotImplementedError
-    def backup(self, dest: str) -> dict: raise NotImplementedError
-    def data_version(self) -> int: raise NotImplementedError             # PRAGMA data_version
-    def heads(self) -> dict: raise NotImplementedError                   # {event_id, comment_id}
 
-    # ---- issues: read ------------------------------------------------------------------
-    def list_issues(self, *, topic: Iterable[str] = (), exact: bool = False,
-                    status: Iterable[str] | str | None = None, priority: Iterable[str] = (),
-                    min_priority: str | None = None, assignee: str | None = None,
-                    reviewer: str | None = None, reporter: str | None = None,
-                    type: Iterable[str] = (), label: Iterable[str] = (), q: str | None = None,
-                    due_before: str | None = None, overdue: bool = False,
-                    updated_since: str | None = None, created_since: str | None = None,
-                    ready: bool = False, blocked: bool = False, stale: bool = False,
-                    parent: str | None = None, sort: str = "priority", desc: bool = False,
-                    limit: int = 50, offset: int = 0) -> dict:
-        """{items: [IssueSummary], total, limit, offset}. status None means 'open'."""
-        raise NotImplementedError
+def _seen_window():
+    from datetime import timedelta
 
-    def get_issue(self, key: str, *, comments: int = 0) -> dict:
-        """Issue; adds new_comments for the actor, and 'comments' (last N) when comments > 0."""
-        raise NotImplementedError
+    from earmark.service import SEEN_THROTTLE_S
 
-    def issue_events(self, key: str) -> list[dict]: raise NotImplementedError
-    def activity(self, *, since: int | None = None, limit: int = 50) -> dict: raise NotImplementedError
+    return timedelta(seconds=SEEN_THROTTLE_S)
 
-    # ---- issues: write -----------------------------------------------------------------
-    def create_issue(self, title: str, *, body: str = "", topic: str | None = None,
-                     priority: str = "medium", type: str = "task", status: str = "todo",
-                     labels: Iterable[str] = (), due: str | None = None,
-                     parent: str | None = None, assignee: str | None = None) -> dict:
-        raise NotImplementedError
 
-    def update_issue(self, key: str, *, if_version: int | None = None, append: str | None = None,
-                     add_labels: Iterable[str] = (), remove_labels: Iterable[str] = (),
-                     **fields: Any) -> dict:
-        """fields ⊆ {title, body, topic, priority, type, due, labels, parent}."""
-        raise NotImplementedError
+def default_owner(directory: str) -> str:
+    """Slug of `git config user.name`, else $USER, else 'owner'."""
+    import subprocess
 
-    def move(self, key: str, status: str, *, note: str | None = None) -> dict: raise NotImplementedError
-    def claim(self, key: str) -> dict: raise NotImplementedError
-    def release(self, key: str, *, note: str | None = None) -> dict: raise NotImplementedError
+    try:
+        out = subprocess.run(["git", "config", "user.name"], cwd=directory, capture_output=True,
+                             text=True, timeout=_db.GIT_TIMEOUT_S, check=False)
+        name = model.slugify(out.stdout.strip()) if out.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        name = ""
+    return name or model.slugify(os.environ.get("USER") or os.environ.get("USERNAME") or "") or "owner"
 
-    def next(self, *, review: bool | None = None, topics: Iterable[str] = (), dry_run: bool = False) -> dict:
-        """Pick and claim in one transaction. review None = role default. Raises Empty with
-        details {review_queue, inbox, stale, scope} when nothing is claimable."""
-        raise NotImplementedError
 
-    def submit_review(self, key: str, *, note: str) -> dict: raise NotImplementedError
-    def approve(self, key: str, *, note: str | None = None) -> dict: raise NotImplementedError
-    def reject(self, key: str, *, note: str) -> dict: raise NotImplementedError
-    def done(self, key: str, *, note: str | None = None) -> dict: raise NotImplementedError
-    def reopen(self, key: str, *, note: str) -> dict: raise NotImplementedError
-    def cancel(self, key: str, *, note: str) -> dict: raise NotImplementedError
-    def assign(self, key: str, handle: str | None) -> dict: raise NotImplementedError
-    def rank(self, key: str, *, before: str | None = None, after: str | None = None,
-             top: bool = False, bottom: bool = False) -> dict: raise NotImplementedError
-    def link(self, key: str, kind: str, target: str) -> dict: raise NotImplementedError
-    def unlink(self, key: str, kind: str, target: str) -> dict: raise NotImplementedError
-    def delete_issue(self, key: str) -> dict: raise NotImplementedError
-
-    # ---- comments ----------------------------------------------------------------------
-    def add_comment(self, key: str, body: str, *, kind: str = "note", reply_to: int | None = None) -> dict:
-        raise NotImplementedError
-
-    def edit_comment(self, comment_id: int, body: str) -> dict: raise NotImplementedError
-
-    def list_comments(self, key: str, *, since: int | None = None, new: bool = False,
-                      last: int | None = None, limit: int = 100) -> dict:
-        """{items: [Comment], last_id, has_more}. new=True reads after and advances the cursor."""
-        raise NotImplementedError
-
-    def inbox(self, *, peek: bool = False, limit: int = 50) -> dict:
-        """{items: [Comment], last_id, has_more, cursor}. Advances unless peek."""
-        raise NotImplementedError
-
-    # ---- topics ------------------------------------------------------------------------
-    def topics(self, *, root: str | None = None, depth: int | None = None,
-               include_archived: bool = False) -> list[dict]: raise NotImplementedError
-    def add_topic(self, path: str, *, name: str | None = None, icon: str | None = None,
-                  description: str | None = None) -> dict: raise NotImplementedError
-    def edit_topic(self, ref: str | int, *, name: str | None = None, icon: str | None = None,
-                   description: str | None = None, position: int | None = None,
-                   archived: bool | None = None) -> dict: raise NotImplementedError
-    def move_topic(self, ref: str | int, new_path: str) -> dict: raise NotImplementedError
-    def remove_topic(self, ref: str | int, *, archive: bool = False) -> dict: raise NotImplementedError
-
-    # ---- team --------------------------------------------------------------------------
-    def profiles(self) -> list[dict]: raise NotImplementedError
-    def get_profile(self, slug: str) -> dict: raise NotImplementedError
-    def add_profile(self, slug: str, *, name: str, role: str, icon: str | None = None,
-                    prompt: str = "", topics: Iterable[str] = ()) -> dict: raise NotImplementedError
-    def edit_profile(self, slug: str, *, if_version: int | None = None, **fields: Any) -> dict:
-        """fields ⊆ {name, role, icon, prompt, topics}."""
-        raise NotImplementedError
-    def remove_profile(self, slug: str) -> dict: raise NotImplementedError
-
-    def join(self, profile: str, *, handle: str | None = None, cli: str | None = None) -> dict:
-        """Briefing: {agent: Agent, profile: Profile, scope: [paths], assigned: [IssueSummary],
-        inbox_new: int, loop: str (role loop text), board: {prefix, require_review, lease_minutes}}."""
-        raise NotImplementedError
-
-    def leave(self, *, keep: bool = False) -> dict: raise NotImplementedError
-    def whoami(self) -> dict: raise NotImplementedError
-    def team(self) -> dict: raise NotImplementedError                    # {agents: [Agent]}
-    def triage(self) -> dict: raise NotImplementedError
-
-    def wait_check(self, mode: str) -> dict | None:
-        """mode work|review|inbox|any. Read-only. Returns {reason, ...} when something is
-        available for the actor, else None. `earmark wait` calls it after data_version moves."""
-        raise NotImplementedError
+def _seed_board(conn, *, prefix: str, owner: str, require_review: bool) -> None:
+    ts = timeutil.now_iso()
+    meta = {"prefix": prefix, "owner": owner, "created_at": ts,
+            "require_review": "1" if require_review else "0",
+            "lease_minutes": str(model.DEFAULT_LEASE_MINUTES)}
+    conn.executemany("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE "
+                     "SET value = excluded.value", list(meta.items()))
+    conn.executemany(
+        "INSERT INTO profiles(slug, name, role, icon, prompt, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [(p["slug"], p["name"], p["role"], p["icon"], p["prompt"], ts, ts) for p in seed.profile_seeds()])
+    conn.execute("INSERT INTO agents(handle, kind, profile, cli, online, joined_at, last_seen) "
+                 "VALUES (?, 'human', NULL, 'human', 1, ?, ?)", (owner, ts, ts))
