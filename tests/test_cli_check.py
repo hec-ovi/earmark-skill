@@ -27,9 +27,11 @@ def item(key, *changes, priority="medium", blocks_open=0, comments=0, questions=
             "files": files}
 
 
-def feed(changed=(), todo=9, more=0, holding=HOLDING, since=SINCE) -> dict:
-    return {"agent": "claude-ui", "since": since, "holding": holding, "todo_for_you": todo,
-            "changed": list(changed), "more": more, "cursor": 42}
+def feed(changed=(), todo=9, more=0, holding=HOLDING, since=SINCE, waiting=0, reviews=0,
+         role="worker") -> dict:
+    return {"agent": "claude-ui", "role": role, "since": since, "holding": holding,
+            "ready_for_you": todo, "waiting_on_blockers": waiting, "reviews_waiting": reviews,
+            "todo_for_you": todo, "changed": list(changed), "more": more, "cursor": 42}
 
 
 SAMPLE = feed([
@@ -40,7 +42,7 @@ SAMPLE = feed([
                      "old": "GAME-31 done", "new": "todo"}),
     item("GAME-9", {"kind": "field", "field": "priority", "old": "medium", "new": "high", "by": "grok-pm"},
          {"kind": "field", "field": "title", "by": "grok-pm"}),
-], todo=10)
+], todo=10, waiting=1)
 
 
 class CheckRenderTests(unittest.TestCase):
@@ -86,16 +88,32 @@ class CheckRenderTests(unittest.TestCase):
             {"key": "GAME-4", "lease_until": "x", "lease_left_min": -3}], more=4)
         self.assertEqual(R.render_check(res, day=DAY).splitlines(), [
             "check: since 14:05:09Z · holding GAME-1 (lease 12m, comment to renew), GAME-2 (lease 2h), "
-            "GAME-4 (lease expired, comment to renew) · todo for you: 9",
+            "GAME-4 (lease expired, comment to renew) · ready for you: 9",
             "GAME-5  1 new comment",
             "+4 more"])
         self.assertIn("(lease 12m, comment to renew)", contract_line("(lease 12m"))
 
     def test_header_without_holding_and_from_another_day(self):
         self.assertEqual(R.render_check(feed(holding=[], todo=0, since="2026-11-02T23:59:00Z"), day=DAY),
-                         "check: nothing new since 11-02 23:59:00Z · todo for you: 0")
+                         "check: nothing new since 11-02 23:59:00Z · ready for you: 0")
         self.assertEqual(R.render_check(feed(holding=[], since=None), day=DAY),
-                         "check: nothing new · todo for you: 9")
+                         "check: nothing new · ready for you: 9")
+
+    def test_header_counts_by_role(self):
+        """Workers and pms: what `next` could claim, plus their issues parked on open blockers;
+        reviewers: what `next --review` could claim. Payloads from before 1.3 still render."""
+        def head(**kw):
+            return R.render_check(feed(holding=[], **kw), day=DAY)
+        self.assertEqual(head(todo=1, waiting=1),
+                         "check: nothing new since 14:05:09Z · ready for you: 1 · 1 waiting on blockers")
+        self.assertEqual(head(todo=0, role="pm", reviews=4), "check: nothing new since 14:05:09Z · "
+                                                             "ready for you: 0")
+        self.assertEqual(head(todo=1, waiting=2, reviews=0, role="reviewer"),
+                         "check: nothing new since 14:05:09Z · reviews waiting: 0")
+        old = {"agent": "a", "since": SINCE, "holding": [], "todo_for_you": 3, "changed": [],
+               "more": 0}
+        self.assertEqual(R.render_check(old, day=DAY), "check: nothing new since 14:05:09Z · "
+                                                       "ready for you: 3")
 
 
 class CheckCommandTests(unittest.TestCase):
@@ -127,7 +145,7 @@ class RealCheckTests(CliBoardCase):
         self.ok("assign", "1", "w1", as_="hector")
         self.ok("comment", "1", "which tab? @w1", "--kind", "question", as_="hector")
         peek = self.ok("check", "--peek", as_="w1").splitlines()
-        self.assertEqual(peek[0], "check: since 10:02:11Z · todo for you: 1")
+        self.assertEqual(peek[0], "check: since 10:02:11Z · ready for you: 1")
         self.assertEqual(peek[1], "GAME-1  new for you (assigned by hector) · high · "
                                   "1 new comment, question for you")
         self.assertEqual(self.ok("claim", "1", as_="w1", hint=True).splitlines()[-1],

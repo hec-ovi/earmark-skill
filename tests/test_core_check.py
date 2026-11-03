@@ -10,7 +10,8 @@ from tests.support import BoardCase
 from earmark import db
 from earmark.errors import IdentityRequired, NotJoined
 
-CHECK_KEYS = {"agent", "since", "holding", "todo_for_you", "changed", "more", "cursor"}
+CHECK_KEYS = {"agent", "role", "since", "holding", "ready_for_you", "waiting_on_blockers",
+              "reviews_waiting", "todo_for_you", "changed", "more", "cursor"}
 CHANGED_KEYS = {"key", "priority", "effective_priority", "blocks_open", "action", "changes",
                 "comments", "questions", "files"}
 
@@ -48,7 +49,7 @@ class Feed(BoardCase):
         self.assertEqual((feed["agent"], feed["since"], feed["changed"], feed["more"]),
                          ("claude-ui", "2026-11-03T09:05:00Z", [], 0))
         self.assertEqual(feed["cursor"], self.board.heads())
-        self.assertEqual(feed["todo_for_you"], 1)
+        self.assertEqual((feed["role"], feed["ready_for_you"], feed["todo_for_you"]), ("worker", 1, 1))
         self.assertEqual(self.ui.pending_changes(), 0)
 
     def test_kinds_counts_and_own_changes(self):
@@ -191,7 +192,7 @@ class Feed(BoardCase):
         self.assertEqual((again["changed"], again["since"]), ([], "2026-11-03T09:03:01Z"))
         self.assertEqual(ui.pending_changes(), 0)
 
-    def test_holding_and_todo_for_you(self):
+    def test_holding_and_counts(self):
         ui = self.ui
         first = self.issue("first")["key"]
         self.issue("second")
@@ -200,12 +201,45 @@ class Feed(BoardCase):
         feed = ui.check()
         self.assertEqual(feed["holding"], [{"key": first, "lease_until": "2026-11-03T11:00:00Z",
                                             "lease_left_min": 20}])
-        self.assertEqual(feed["todo_for_you"], 1)
+        self.assertEqual((feed["ready_for_you"], feed["todo_for_you"], feed["reviews_waiting"]),
+                         (1, 1, 0))
         self.clock.advance(minutes=30)
-        self.assertEqual(ui.check()["holding"][0]["lease_left_min"], 0)
-        self.assertEqual(self.qa.check()["todo_for_you"], 0)  # reviewers count the review queue
+        feed = ui.check()
+        self.assertEqual(feed["holding"][0]["lease_left_min"], 0)
+        self.assertEqual(feed["ready_for_you"], 2)  # its own lapsed claim is claimable again
+        qa = self.qa.check()
+        self.assertEqual((qa["role"], qa["reviews_waiting"]), ("reviewer", 0))
         ui.submit_review(first, note="ok")
-        self.assertEqual(self.qa.check()["todo_for_you"], 1)
+        self.assertEqual(self.qa.check()["reviews_waiting"], 1)
+        self.assertEqual(ui.check()["reviews_waiting"], 0)  # its own handoff is not for it
+
+    def test_ready_counts_what_next_claims_and_blocked_work_waits(self):
+        """Live-test repros: a reviewer with nothing assigned read the worker queue as its todo,
+        and a writer's issue parked on an open blocker counted as ready though next skipped it."""
+        b, ui = self.board, self.ui
+        b.add_topic("copy")
+        b.add_topic("art")
+        b.add_profile("writer", name="Writer", role="worker", topics=["copy"])
+        writer = self.agent("writer-1", "writer")
+        first = self.issue("tagline", topic="copy")["key"]
+        second = self.issue("blurb", topic="copy")["key"]
+        b.assign(first, "writer-1")
+        b.assign(second, "writer-1")
+        art = self.issue("hero image", topic="art")["key"]
+        b.link(art, "blocks", second)
+        self.issue("someone else's", topic="copy", assignee="claude-ui")
+        self.issue("api work")  # outside the writer's scope
+        feed = writer.check()
+        self.assertEqual((feed["ready_for_you"], feed["waiting_on_blockers"], feed["reviews_waiting"]),
+                         (1, 1, 0))
+        self.assertEqual(writer.next()["key"], first)
+        self.assertEqual((writer.check()["ready_for_you"], writer.check()["waiting_on_blockers"]),
+                         (0, 1))
+        b.move(art, "done")
+        self.assertEqual((writer.check()["ready_for_you"], writer.check()["waiting_on_blockers"]),
+                         (1, 0))
+        qa = self.qa.check()
+        self.assertEqual((qa["reviews_waiting"], qa["waiting_on_blockers"]), (0, 0))
 
     def test_reads_do_not_write_and_identity(self):
         ui = self.ui
