@@ -24,6 +24,8 @@ RANK_STEP = 1024.0
 RANK_MIN_GAP = 1e-6
 EXCERPT = 120
 REVERSE_LINK = {"blocks": "blocked_by", "duplicates": "duplicated_by", "relates": "relates"}
+LIST_TIMES = ("started_at", "review_requested_at", "resolved_at")
+LIST_EXTRAS = LIST_TIMES + ("new_comments", "links")  # list_issues(extra=...): show's fields
 
 
 def _excerpt(text: str | None) -> str | None:
@@ -52,11 +54,17 @@ class IssuesMixin:
                     updated_since: str | None = None, created_since: str | None = None,
                     ready: bool = False, blocked: bool = False, stale: bool = False,
                     parent: str | None = None, sort: str = "priority", desc: bool = False,
-                    limit: int = 50, offset: int = 0) -> dict:
-        """{items: [IssueSummary], total, limit, offset}. status None means 'open'."""
+                    limit: int = 50, offset: int = 0, extra: Iterable[str] = ()) -> dict:
+        """{items: [IssueSummary], total, limit, offset}. status None means 'open'. extra adds
+        fields `show` has to each item: started_at, review_requested_at, resolved_at,
+        new_comments (for the actor; None without one), links (one batch each)."""
         limit, offset = int(limit), int(offset)
         if limit < 0 or offset < 0:
             raise InvalidRequest("limit and offset must be zero or more")
+        wanted = [extra] if isinstance(extra, str) else list(extra or ())
+        unknown = sorted(set(wanted) - set(LIST_EXTRAS))
+        if unknown:
+            raise InvalidRequest(f"unknown extra field {unknown[0]!r}; use: {', '.join(LIST_EXTRAS)}")
         sort_key = str(sort or "priority").lower()
         if sort_key not in SORTS:
             raise InvalidRequest(f"invalid sort {sort!r}; use one of: {', '.join(SORTS)}")
@@ -71,11 +79,40 @@ class IssuesMixin:
             total = conn.execute(f"SELECT count(*) FROM issues i WHERE {where}", params).fetchone()[0]
             order = ", ".join(term if not desc or term.startswith("(") else term + " DESC"
                               for term in SORTS[sort_key])
+            times = [c for c in LIST_TIMES if c in wanted]
+            columns = views.SUMMARY_COLUMNS + "".join(f", i.{c}" for c in times)
             rows = conn.execute(
-                f"SELECT {views.SUMMARY_COLUMNS} FROM {views.ISSUE_FROM} WHERE {where} "
+                f"SELECT {columns} FROM {views.ISSUE_FROM} WHERE {where} "
                 f"ORDER BY {order} LIMIT ? OFFSET ?", params + [limit, offset]).fetchall()
             items = views.summaries_from_rows(conn, self.prefix, rows, now_ts)
+            for item, row in zip(items, rows):
+                item.update((c, row[c]) for c in times)
+            ids = [i["id"] for i in items]
+            if "new_comments" in wanted and ids:
+                counts = self._new_comment_counts(conn, ids)
+                for item in items:
+                    item["new_comments"] = counts.get(item["id"], 0) if self.actor else None
+            if "links" in wanted and ids:
+                links = views.links_of(conn, self.prefix, ids)
+                for item in items:
+                    item["links"] = links[item["id"]]
         return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+    def _new_comment_counts(self, conn, ids: list[int]) -> dict[int, int]:
+        """{issue id: comments by others past the actor's issue cursor} for ids (batched)."""
+        from earmark.db import chunks
+
+        if not self.actor:
+            return {}
+        out: dict[int, int] = {}
+        for part in chunks(ids):
+            out.update(conn.execute(
+                f"SELECT c.issue_id, count(*) FROM comments c LEFT JOIN cursors ic ON ic.agent = ? "
+                f"AND ic.scope = 'issue:' || c.issue_id WHERE c.issue_id IN "
+                f"({','.join('?' * len(part))}) AND c.author <> ? AND c.id > "
+                f"coalesce(ic.last_comment_id, 0) GROUP BY c.issue_id",
+                [self.actor, *part, self.actor]).fetchall())
+        return out
 
     def _issue_filters(self, conn, now_ts: str, **f) -> tuple[str, list]:
         clauses: list[str] = []

@@ -20,7 +20,7 @@
 
     "IssueSummary": {
       "type": "object",
-      "description": "One issue in a list. `stale`: the holder's lease has expired. `blocked`: an issue that blocks it is not done or canceled.",
+      "description": "One issue in a list. `stale`: the holder's lease has expired. `blocked`: an issue that blocks it is not done or canceled. started_at, review_requested_at, resolved_at, new_comments (for the actor; null without one) and links appear only when the list asks for them (list_issues extra; ls --fields).",
       "required": ["key", "id", "title", "status", "priority", "effective_priority", "type", "topic",
                    "assignee", "reviewer", "reporter", "labels", "due", "parent", "children", "blocked",
                    "blocks_open", "stale", "lease_until",
@@ -53,7 +53,12 @@
         "last_comment_id": { "type": ["integer", "null"] },
         "attachment_count": { "$ref": "#/$defs/Count", "description": "Files on the issue and its comments." },
         "created_at": { "$ref": "#/$defs/Timestamp" },
-        "updated_at": { "$ref": "#/$defs/Timestamp" }
+        "updated_at": { "$ref": "#/$defs/Timestamp" },
+        "started_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "review_requested_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "resolved_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "new_comments": { "type": ["integer", "null"], "minimum": 0 },
+        "links": { "$ref": "#/$defs/Links" }
       }
     },
 

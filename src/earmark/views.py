@@ -183,6 +183,27 @@ def issue_links(conn: sqlite3.Connection, prefix: str, issue_id: int) -> dict:
             for name, ids in links.items()}
 
 
+def links_of(conn: sqlite3.Connection, prefix: str, ids: list[int]) -> dict[int, dict]:
+    """issue_links for many issues: {id: links} (one batch per direction)."""
+    found: dict[int, set] = {i: set() for i in ids}
+    for column in ("src", "dst"):
+        for src, dst, kind in _batch(conn, f"SELECT src, dst, kind FROM links WHERE {column} "
+                                           f"IN ({{marks}})", ids):
+            if column == "src":
+                found[src].add((dst, "relates" if kind == "relates" else kind))
+            else:
+                found[dst].add((src, {"blocks": "blocked_by", "duplicates": "duplicated_by",
+                                      "relates": "relates"}[kind]))
+    out = {}
+    for issue_id, pairs in found.items():
+        links = {"blocks": [], "blocked_by": [], "duplicates": [], "duplicated_by": [], "relates": []}
+        for other, name in sorted(pairs):
+            if model.format_key(prefix, other) not in links[name]:
+                links[name].append(model.format_key(prefix, other))
+        out[issue_id] = links
+    return out
+
+
 def link_status(conn: sqlite3.Connection, prefix: str, issue_id: int) -> dict:
     """{key: status} of every issue linked to issue_id (blockers, blocked, duplicates, relates)."""
     rows = conn.execute("SELECT o.id, o.status FROM issues o WHERE o.id IN (SELECT dst FROM links "
