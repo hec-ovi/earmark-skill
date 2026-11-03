@@ -1203,7 +1203,10 @@ class Seeder:
 
 def _inside(path: str, root: str) -> bool:
     path, root = os.path.realpath(path), os.path.realpath(root)
-    return path == root or os.path.commonpath([path, root]) == root
+    try:
+        return path == root or os.path.commonpath([path, root]) == root
+    except ValueError:  # Windows: different drives, so not inside
+        return False
 
 
 def main(argv: list[str] | None = None) -> int:
