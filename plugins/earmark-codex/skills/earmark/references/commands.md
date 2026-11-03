@@ -31,7 +31,7 @@ Exit codes: 0 ok · 1 invalid · 2 not found · 3 conflict · 4 empty · 5 busy.
 | `--parent KEY` | sub-issues of KEY |
 | `--sort KEY` | `priority` (default: priority, rank), `rank`, `updated`, `created`, `due`, `key`; `--desc` |
 | `--limit N --offset N` | default 50; footer gives the next offset |
-| `--fields LIST` · `--count` | choose columns · print the count only |
+| `--fields LIST` · `--count` | choose columns: `flags` and every scalar field `show -f` takes (e.g. `key,status,assignee,resolved_at`; `blocks`, `blocked_by`… list keys) · print the count only |
 
 Text output (header, aligned columns, `-` for empty, flags last):
 
