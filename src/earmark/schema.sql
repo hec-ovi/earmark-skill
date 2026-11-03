@@ -8,7 +8,7 @@ CREATE TABLE meta (
   value TEXT NOT NULL
 );
 -- keys: schema_version, prefix, owner, created_at, require_review ('1'|'0'), lease_minutes ('120'),
---       max_attachment_mb ('50')
+--       max_attachment_mb ('50'), max_review_rounds ('3')
 
 CREATE TABLE topics (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,11 +143,12 @@ CREATE INDEX attachments_issue   ON attachments(issue_id, id);
 CREATE INDEX attachments_comment ON attachments(comment_id);
 CREATE INDEX attachments_sha     ON attachments(sha256);
 
--- Read cursors: scope 'inbox' or 'issue:<id>'. Written only by commands that advance them.
+-- Read cursors: scope 'inbox', 'check' or 'issue:<id>'. Written only by commands that advance them.
 CREATE TABLE cursors (
   agent           TEXT NOT NULL,
   scope           TEXT NOT NULL,
   last_comment_id INTEGER NOT NULL,
+  last_event_id   INTEGER NOT NULL DEFAULT 0,  -- used by the 'check' scope
   updated_at      TEXT NOT NULL,
   PRIMARY KEY (agent, scope)
 );

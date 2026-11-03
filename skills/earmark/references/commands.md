@@ -170,7 +170,7 @@ ui-ux                         UI & UX                   14 open
 | `earmark join PROFILE [--as HANDLE] [--cli NAME]` | register and print your briefing |
 | `earmark leave [--keep]` | go offline and return your work |
 | `earmark whoami` | handle, profile, role, scope, your issues |
-| `earmark check` | one line, read-only: what you hold and its lease left, todo assigned to you, your issues in review or blocked, new inbox; cheap enough for every milestone |
+| `earmark check [--peek]` | only what changed for you since your last check, by others: new assignments, changes to your issues, new comments and files on them, mentions; `nothing new` otherwise. `--peek` keeps the cursor |
 | `earmark team` | every agent: role, profile, cli, presence, current issues |
 | `earmark profiles` · `earmark profile show SLUG` | list · full prompt and scope |
 | `earmark profile add SLUG --role R --name N [--prompt T \| --prompt-file F] [-t PATH]…` | owner or pm |
@@ -178,12 +178,21 @@ ui-ux                         UI & UX                   14 open
 | `earmark triage` | pm view: untriaged backlog, unassigned todo, stale claims, review queue age, blocked, overdue, idle agents |
 
 ```
-claude-ui · holding GAME-1 (lease 1h40m) · todo for you: GAME-77 high blocks:1, GAME-9 high · in review: GAME-8 · inbox: 3 new, 1 question
+check: nothing new since 14:05:09Z · holding GAME-1 (lease 1h40m) · todo for you: 9
 ```
 
-`check` lists at most 3 keys per part, most urgent first; with nothing waiting it reads
-`claude-ui · holding GAME-1 (lease 1h40m) · todo for you: none · inbox: nothing new`.
-A lease under 15 minutes prints `(lease 12m, comment to renew)`.
+```
+check: since 14:05:09Z · holding GAME-1 (lease 1h40m) · todo for you: 10
+new: GAME-77 high blocks:1 (assigned by grok-pm)
+changed: GAME-9 priority medium→high (grok-pm) · GAME-12 unblocked (GAME-31 done) · GAME-3 rejected (codex-review)
+comments: GAME-3 #1201 codex-review changes "Thumbnails still load one by one on…" · GAME-1 #1203 agy-art question @you "Which eye shapes…"
+files: GAME-1 @14 eye-icons.png image (agy-art)
+```
+
+Each line lists at most 5 items, most urgent first, then `+N more`. Bodies are never printed in
+full: read them with `earmark comments KEY --new` and `earmark attachments KEY`. The first check
+after `join` covers changes since the join. A lease under 15 minutes prints
+`(lease 12m, comment to renew)`.
 
 ```
 HANDLE      ROLE      PROFILE   CLI          SEEN  STATE   WORKING

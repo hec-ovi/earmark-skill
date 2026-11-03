@@ -130,6 +130,9 @@ Inside one `BEGIN IMMEDIATE`, select the first candidate and claim it.
 - **Order**: assigned to the actor first, then effective priority, then issues that block
   others before those that do not, then due date (none last), then rank, then id. Review mode
   orders by effective priority, then `review_requested_at`.
+- **Review rounds are capped.** The `meta.max_review_rounds`-th reject (default 3) does not
+  return the issue to the worker: it moves to `blocked`, assignee kept, with a note that the owner
+  or a pm must decide (event `review_cap`). Agents never ping-pong an issue forever.
 - Nothing found: exit code 4 (`empty`) with counts that tell the agent where to look next
   (review queue size, inbox count, stale claims).
 
@@ -204,9 +207,11 @@ Agents never message each other to get work done. A dependency is an issue.
   profile prompt, scope, issues assigned, inbox count and the role's loop.
 - `leave` sets the agent offline and returns its work: `in_progress` and assigned `todo`
   issues become unassigned `todo`, held reviews return to the review queue. `--keep` skips it.
-- `check` is the cheap pulse an agent runs at milestones: one read-only line with its held
-  issues and lease left, todo assigned to it (most urgent first, blockers flagged), its issues in
-  review or blocked, and the inbox count with questions addressed to it.
+- `check` is the change feed for one agent. It keeps a cursor (`check`: last event id and last
+  comment id) and reports only what others changed since then on the agent's world: issues
+  newly assigned to it, events on issues it is assignee or reviewer of, comments and files on
+  them, and comments anywhere that mention it. Nothing changed prints one line. It advances the
+  cursor (one small write) unless `--peek`; `join` starts the cursor at the current heads.
 - **Presence** shown in `team`: `active` (online, seen < 15 min), `idle` (online, older),
   `offline`.
 
