@@ -19,6 +19,9 @@ _UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 _DURATION = re.compile(r"(\d+)([smhdw])")
 _RELATIVE_DATE = re.compile(r"([+-])(\d+)([dw])")
 
+MAX_DAYS = 36500  # durations up to a century; past that a duration is a typo
+MAX_SECONDS = MAX_DAYS * 86400
+
 _clock: Callable[[], datetime] | None = None
 
 
@@ -63,16 +66,23 @@ def today() -> date:
 def parse_duration(text: str | int | float) -> timedelta:
     """'30m', '2h', '3d', '1w', '45s', or combined '1h30m'. Bare numbers are seconds."""
     if isinstance(text, (int, float)) and not isinstance(text, bool):
-        if text < 0:
+        if not 0 <= text <= MAX_SECONDS:
             raise InvalidRequest(f"invalid duration {text!r}")
         return timedelta(seconds=text)
     raw = str(text or "").strip().lower()
-    if raw.isdigit():
-        return timedelta(seconds=int(raw))
-    parts = _DURATION.findall(raw)
-    if not raw or "".join(n + u for n, u in parts) != raw:
-        raise InvalidRequest(f"invalid duration {text!r}; use e.g. 30m, 2h, 3d, 1w")
-    return timedelta(seconds=sum(int(n) * _UNITS[u] for n, u in parts))
+    if raw.isascii() and raw.isdigit():
+        parts = [(raw, "s")]
+    else:
+        parts = _DURATION.findall(raw)
+        if not raw or "".join(n + u for n, u in parts) != raw:
+            raise InvalidRequest(f"invalid duration {text!r}; use e.g. 30m, 2h, 3d, 1w")
+    too_long = any(len(n) > 12 for n, _ in parts)  # also keeps int() off huge digit strings
+    seconds = 0 if too_long else sum(int(n) * _UNITS[u] for n, u in parts)
+    if too_long or seconds > MAX_SECONDS:
+        from earmark.model import shown
+
+        raise InvalidRequest(f"duration {shown(text)} is out of range (at most {MAX_DAYS} days)")
+    return timedelta(seconds=seconds)
 
 
 def parse_date(text: str) -> str:
@@ -85,8 +95,13 @@ def parse_date(text: str) -> str:
     match = _RELATIVE_DATE.fullmatch(raw)
     if match:
         sign, count, unit = match.groups()
-        days = int(count) * (7 if unit == "w" else 1)
-        return (base + timedelta(days=days if sign == "+" else -days)).isoformat()
+        try:
+            if len(count) > 9:
+                raise OverflowError
+            days = int(count) * (7 if unit == "w" else 1)
+            return (base + timedelta(days=days if sign == "+" else -days)).isoformat()
+        except OverflowError:
+            raise InvalidRequest(f"date {text!r} is out of range") from None
     try:
         return date.fromisoformat(raw).isoformat() if len(raw) == 10 else _bad_date(text)
     except ValueError:
@@ -107,11 +122,14 @@ def parse_when(text: str) -> str:
         return iso(parse_iso(raw))
     try:
         return iso(now() - parse_duration(raw))
-    except InvalidRequest:
-        pass
+    except InvalidRequest as exc:
+        if "out of range" in exc.message:
+            raise
     try:
         return parse_date(raw) + "T00:00:00Z"
-    except InvalidRequest:
+    except InvalidRequest as exc:
+        if "out of range" in exc.message:
+            raise
         raise InvalidRequest(f"invalid time {text!r}; use 30m, 2h, 3d, 1w or a date") from None
 
 

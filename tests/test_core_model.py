@@ -25,6 +25,14 @@ class KeysAndEnums(unittest.TestCase):
         for bad in ("", "GAME-", "x", "GAME-1a", "0x1", -1, 0):
             with self.assertRaises(InvalidRequest, msg=bad):
                 model.parse_key(bad, "GAME")
+        self.assertEqual(model.parse_key(str(model.MAX_ID), "GAME"), model.MAX_ID)
+        for huge in ("99999999999999999999", "GAME-9223372036854775808", "9" * 5000, 2 ** 63):
+            with self.assertRaises(InvalidRequest) as ctx:
+                model.parse_key(huge, "GAME")
+            self.assertLess(len(ctx.exception.message), 120)
+        for huge in ("99999999999999999999", "@" + "9" * 5000, 2 ** 64):
+            with self.assertRaises(InvalidRequest):
+                model.parse_attachment_id(huge)
 
     def test_priorities(self):
         self.assertEqual([model.parse_priority(p) for p in model.PRIORITIES], [0, 1, 2, 3, 4])
@@ -140,6 +148,12 @@ class TimeUtil(unittest.TestCase):
         for bad in ("", "3x", "m", "1.5h", "-2h"):
             with self.assertRaises(InvalidRequest, msg=bad):
                 timeutil.parse_duration(bad)
+        self.assertEqual(timeutil.parse_duration("36500d"), timedelta(days=36500))
+        for huge in ("99999999999w", "36501d", "99999999999999999999", "9" * 5000 + "s", 1e300):
+            with self.assertRaises(InvalidRequest) as ctx:  # never OverflowError
+                timeutil.parse_duration(huge)
+            self.assertIn("out of range" if not isinstance(huge, float) else "duration",
+                          ctx.exception.message)
 
     def test_dates(self):
         self.assertEqual(timeutil.parse_date("today"), "2026-11-03")
@@ -150,6 +164,10 @@ class TimeUtil(unittest.TestCase):
         for bad in ("2026-13-01", "next week", "+3m", "26-01-01"):
             with self.assertRaises(InvalidRequest, msg=bad):
                 timeutil.parse_date(bad)
+        for huge in ("+99999999d", "-99999999w", "+" + "9" * 5000 + "d"):
+            with self.assertRaises(InvalidRequest) as ctx:
+                timeutil.parse_date(huge)
+            self.assertIn("out of range", ctx.exception.message)
 
     def test_when(self):
         self.assertEqual(timeutil.parse_when("2h"), "2026-11-03T21:30:05Z")
@@ -158,6 +176,10 @@ class TimeUtil(unittest.TestCase):
         self.assertEqual(timeutil.parse_when("2026-11-01T10:00:00Z"), "2026-11-01T10:00:00Z")
         with self.assertRaises(InvalidRequest):
             timeutil.parse_when("soon")
+        for huge in ("99999999999w", "-99999999d"):
+            with self.assertRaises(InvalidRequest) as ctx:
+                timeutil.parse_when(huge)
+            self.assertIn("out of range", ctx.exception.message)
 
 
 if __name__ == "__main__":

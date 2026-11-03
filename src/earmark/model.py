@@ -43,6 +43,7 @@ MAX_ATTACHMENT_MB = 4096
 ATTACHMENT_KINDS = ("image", "audio", "video", "pdf", "text", "file")
 MAX_FILE_NAME = 255
 MAX_TOPIC_DEPTH = 16
+MAX_ID = 2 ** 63 - 1  # SQLite INTEGER; larger numbers can name no row
 
 MIME_RE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}")
 HANDLE_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
@@ -51,6 +52,12 @@ LABEL_RE = re.compile(r"[a-z0-9][a-z0-9._:-]{0,31}")
 PREFIX_RE = re.compile(r"[A-Z][A-Z0-9]{0,9}")
 KEY_RE = re.compile(r"#?(?:([A-Za-z][A-Za-z0-9]{0,9})-)?(\d+)")
 MENTION_RE = re.compile(r"(?<![\w@])@([a-z0-9][a-z0-9-]{0,31})")
+
+
+def shown(value, limit: int = 40) -> str:
+    """repr for error messages, cut so a pasted megabyte never floods the terminal."""
+    text = repr(value)
+    return text if len(text) <= limit else text[:limit - 4] + "…" + text[-3:]
 
 
 def _items(value: Iterable[str] | str | None) -> list[str]:
@@ -159,7 +166,7 @@ def format_key(prefix: str, issue_id: int | None) -> str | None:
 def parse_key(value: str | int, prefix: str) -> int:
     """'GAME-42', 'game-42', '42' (or an int) → 42."""
     if isinstance(value, int) and not isinstance(value, bool):
-        if value > 0:
+        if 0 < value <= MAX_ID:
             return value
         raise InvalidRequest(f"invalid issue key {value!r}")
     match = KEY_RE.fullmatch(str(value or "").strip())
@@ -169,6 +176,9 @@ def parse_key(value: str | int, prefix: str) -> int:
     if given and given.upper() != prefix:
         raise NotFound(f"{value} is not on this board (keys here look like {prefix}-{number})",
                        hint=f"earmark show {prefix}-{number}")
+    if len(number) > 19 or not 0 < int(number) <= MAX_ID:
+        raise InvalidRequest(f"invalid issue key {shown(value)}; the number is out of range",
+                             hint="earmark ls")
     return int(number)
 
 
@@ -312,10 +322,10 @@ def attachment_kind(mime: str) -> str:
 
 def parse_attachment_id(value: str | int) -> int:
     """'@12', '12' (or 12) → 12."""
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+    if isinstance(value, int) and not isinstance(value, bool) and 0 < value <= MAX_ID:
         return value
     text = str(value or "").strip().lstrip("@")
-    if not text.isdigit() or int(text) < 1:
+    if not text.isascii() or not text.isdigit() or len(text) > 19 or not 0 < int(text) <= MAX_ID:
         raise InvalidRequest(f"invalid attachment id {value!r}; use @12 or 12",
                              hint="earmark attachments KEY")
     return int(text)

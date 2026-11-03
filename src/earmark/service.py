@@ -96,7 +96,10 @@ class BoardBase:
     def _read(self) -> Iterator[sqlite3.Connection]:
         with db.snapshot(self.conn) as conn:
             self._load_meta()
-            yield conn
+            try:
+                yield conn
+            except OverflowError:  # an id, limit or position too large for SQLite
+                raise out_of_range() from None
 
     def _need_actor(self) -> str:
         if not self.actor:
@@ -119,7 +122,10 @@ class BoardBase:
             tx = Tx(conn, actor, now, timeutil.iso(now), agent["role"], actor == self.owner,
                     self.lease_minutes, self.require_review)
             self._refresh_seen(conn, actor, agent["last_seen"], now, online=bool(agent["online"]))
-            yield tx
+            try:
+                yield tx
+            except OverflowError:  # rolled back by db.write like any other error
+                raise out_of_range() from None
 
     @staticmethod
     def _not_joined(actor: str) -> NotJoined:
@@ -261,6 +267,11 @@ def subtree_sql(paths: list[str], column: str = "t.path") -> tuple[str, list]:
     for p in paths:
         params += [p, p + "/%"]
     return f"({clause})", params
+
+
+def out_of_range() -> InvalidRequest:
+    return InvalidRequest(f"a number in the request is out of range (ids, limits and positions "
+                          f"go up to {model.MAX_ID})")
 
 
 def require_text(value: str | None, what: str) -> str:

@@ -96,6 +96,37 @@ class Create(BoardCase):
         self.assertEqual(log, [("created", None, "mine"), ("assignee", None, "w1")])
         self.assertEqual(w2.get_issue(mine["key"])["assignee"], "w1")
 
+    def test_numbers_out_of_range_are_invalid_requests(self):  # never OverflowError
+        b = self.board
+        key = self.issue("x")["key"]
+        big = 99999999999999999999
+        calls = {
+            "show": lambda: b.get_issue(str(big)),
+            "updated_since": lambda: b.list_issues(updated_since="99999999999w"),
+            "due": lambda: b.create_issue("y", due="+99999999d"),
+            "limit": lambda: b.list_issues(limit=big),
+            "offset": lambda: b.list_issues(offset=big),
+            "since": lambda: b.list_comments(key, since=big),
+            "activity": lambda: b.activity(since=big),
+            "reply_to": lambda: b.add_comment(key, "x", reply_to=big),
+            "edit_comment": lambda: b.edit_comment(big, "x"),
+            "topic_id": lambda: b.edit_topic(str(big), name="x"),
+            "triage": lambda: b.triage(limit=big),
+            "parent": lambda: b.update_issue(key, parent=str(big)),
+        }
+        for name, call in calls.items():
+            with self.subTest(name), self.assertRaises(InvalidRequest):
+                call()
+        b.add_topic("a")
+        with self.assertRaises(InvalidRequest):
+            b.edit_topic("a", position=big)
+        self.assertEqual(b.topics()[0]["position"], 0)  # rolled back
+        with self.assertRaises(Conflict) as ctx:
+            b.update_issue(key, if_version=big, title="z")
+        self.assertEqual((ctx.exception.details["current_version"],
+                          ctx.exception.details["events_since"]), (1, []))
+        self.assertEqual(len(b.list_issues()["items"]), 1)
+
     def test_identity(self):
         anon = self.open_as(None)
         with self.assertRaises(IdentityRequired):
