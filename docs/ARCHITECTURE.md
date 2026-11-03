@@ -58,7 +58,8 @@ service, so every rule below lives in exactly one place.
   cursor when the caller asks (`--new`, `inbox`), and `agents.last_seen`, refreshed at most
   once per 60 s per agent. There are no heartbeats, no timers that write, no polling writes.
 - **Change detection is read-only.** The UI server and `earmark wait` (modes `work`, `review`,
-  `changes`, `any`) keep one connection and check `PRAGMA data_version` (memory, no I/O on the main file); only a change triggers a query.
+  `changes`, `any`; it also re-checks when the next lease in scope lapses and returns `board` when
+  nothing is open) keep one connection and check `PRAGMA data_version` (memory, no I/O on the main file); only a change triggers a query.
 - **Migrations.** `meta.schema_version`; `db.py` applies numbered migrations in one write
   transaction on open when the file is older. Version 1 is `schema.sql`.
 - **Startup.** Lazy imports: `earmark ls` loads only cli, board, db. Target under 50 ms.
@@ -150,8 +151,8 @@ one call (two transactions; the first commits even when nothing is left to claim
   or a pm must decide (event `review_cap`). Agents never ping-pong an issue forever. Triage lists
   these as exhausted reviews, auto-unblock leaves them alone, and an owner or pm approve or reopen
   resets the count (`review_reset`).
-- Nothing found: exit code 4 (`empty`) with counts that tell the agent where to look next
-  (review queue size, inbox count, stale claims).
+- Nothing found: exit code 4 (`empty`) with the reviews it could claim (own handoffs excluded),
+  its check-feed count and stale claims, which tell the agent where to look next.
 
 ### Needs: work only another agent can do
 
@@ -236,7 +237,13 @@ Agents never message each other to get work done. A dependency is an issue.
   newly assigned to it, events on issues it is assignee or reviewer of, comments and files on
   them, and comments anywhere that mention it, summarized per issue as kinds of change and counts
   (never content). A comment counts only past both the check cursor and the agent's `issue:<id>`
-  cursor, so what `next` or `show --new` already printed is not reported again. Nothing changed
+  cursor, and an event only when it is newer than the agent's own last write on that issue, so what
+  `next` or `show --new` already printed is not reported again. A pm's feed covers every issue in
+  its scope: created, status, assignee, review, approve, reject, review_cap, unblocked, takeover,
+  and claims whose lease lapsed since its last check. The header counts what the role can act on:
+  `ready for you` (and `waiting on blockers`) for workers and pms, `reviews waiting` for reviewers.
+  A `question` is for the handles it @mentions, or for the issue's assignee and reviewer when it
+  mentions nobody; other mentions read `mentions you`. Nothing changed
   prints one line. It advances the cursor (one small write)
   unless `--peek`; `join` starts the cursor at the current heads.
 - **Dirty hint.** Every write command run by an agent, and `next`, ends with one extra line when
