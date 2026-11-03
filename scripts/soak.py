@@ -1256,8 +1256,8 @@ def print_soak(res: dict, out) -> None:
     if d.get("ui_during_run"):
         u = d["ui_during_run"]
         print(f"earmark ui during the run: wrote {size(u['write_bytes'])} while agents ran, "
-              f"{size(u['lifetime_write_bytes'])} over its life (start, final checkpoint at "
-              f"close) · {u['change_events']:,} change events on the open stream · SIGTERM exit "
+              f"{size(u['lifetime_write_bytes'])} from start to exit · {u['change_events']:,} "
+              f"change events on the open stream · SIGTERM exit "
               f"{u['exit_code']} in {u['exit_seconds']:.2f} s{' (killed)' if u['killed'] else ''}",
               file=out)
     print(f"peak RSS of one CLI call: {size(res['rss_max_kib'] * 1024)} (p50 "
