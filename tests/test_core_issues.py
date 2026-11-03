@@ -116,6 +116,7 @@ class ListFilters(BoardCase):
                          ["GAME-2", "GAME-3"])
         with self.assertRaises(NotFound):
             self.board.list_issues(topic=["nope"])
+        self.assertEqual(self.board.list_issues(topic=["", None])["total"], 4)
 
     def test_priority_type_label_text(self):
         b = self.board

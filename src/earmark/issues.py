@@ -82,7 +82,7 @@ class IssuesMixin:
             clauses.append(sql)
             params.extend(values)
 
-        topics = [f["topic"]] if isinstance(f["topic"], str) else list(f["topic"] or ())
+        topics = [t for t in ([f["topic"]] if isinstance(f["topic"], str) else f["topic"] or ()) if t]
         if topics:
             paths = [self._topic_path(conn, t) for t in topics]
             if f["exact"]:

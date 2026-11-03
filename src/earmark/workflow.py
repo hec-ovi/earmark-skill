@@ -228,7 +228,8 @@ class WorkflowMixin:
         """Pick and claim in one transaction. review None = role default. Raises Empty with
         details {review_queue, inbox, stale, scope} when nothing is claimable."""
         self._need_actor()
-        narrow = [model.parse_topic_path(t) for t in ([topics] if isinstance(topics, str) else topics)]
+        given = [topics] if isinstance(topics, str) else list(topics or ())
+        narrow = [model.parse_topic_path(t) for t in given if t]
         with self._read() as conn:
             agent = self._actor_row(conn)
             for path in narrow:
