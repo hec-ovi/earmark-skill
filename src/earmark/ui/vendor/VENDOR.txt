@@ -1,0 +1,28 @@
+Third-party files vendored into the earmark web UI
+==================================================
+
+The UI has no build step and loads no remote code. These files are copied verbatim from the
+published npm tarballs (fetched with `npm pack <name>@<version>`, never installed or run),
+with the two mechanical edits noted below.
+
+preact 10.29.8 (MIT, preact.LICENSE.txt)
+  vendor/preact.module.js   <- package/dist/preact.module.js
+  vendor/hooks.module.js    <- package/hooks/dist/hooks.module.js
+  integrity sha512-ej2aVZ+vZ8WO7tvlQWRM9N63A0KzF9q4mWJfDUHgYaIofWY9hu74QdnQrjoPMmZi2/nZ5gN0bJCQF49xQqx09Q==
+
+htm 3.1.1 (Apache-2.0, htm.LICENSE.txt)
+  vendor/htm.module.js      <- package/dist/htm.module.js
+  integrity sha512-983Vyg8NwUE7JkZ6NmOqpCZ+sh1bKv2iYTlUkzlWmA5JD2acKoxd4KVxbMmxX/85mtfdnDmTFoNKcg5DGAvxNQ==
+
+lucide-static 1.57.0 (ISC, with MIT-licensed Feather-derived icons; lucide.LICENSE.txt)
+  icons.svg                 <- a <symbol> sprite of the icons the UI uses, generated from
+                               package/icons/*.svg by scripts/build-icons.py
+  integrity sha512-nuf4YoaKt3Pq9scXVQ71SLr0Q1/UZiTcfBBivFsCVL6biAzPplTikVWXLetBmK3oFEJS6f2L1rzgEsoJN/Ce0Q==
+
+Edits
+  - hooks.module.js: the bare import `from"preact"` is rewritten to `from"./preact.module.js"`
+    (the strict CSP forbids the inline import map a bare specifier would need).
+  - All three: the trailing `//# sourceMappingURL=` comment is removed (maps are not shipped).
+
+Custom symbols in icons.svg (status half-circle, priority bars, urgent square, brand mark) are
+original drawings defined in scripts/build-icons.py and share the project's MIT license.
