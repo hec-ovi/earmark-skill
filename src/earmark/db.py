@@ -233,28 +233,98 @@ def migrate(conn: sqlite3.Connection, *, target: int = SCHEMA_VERSION) -> int:
     if current == target:
         return current
     with write(conn):
-        current = schema_version(conn)
-        for version in range(current + 1, target + 1):
-            MIGRATIONS[version](conn)
-            conn.execute("INSERT INTO meta(key, value) VALUES ('schema_version', ?) "
-                         "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (str(version),))
+        _apply_migrations(conn, schema_version(conn), target)
     return target
 
 
-def create(path: str) -> sqlite3.Connection:
-    """Create a new board file in WAL mode with the current schema."""
-    conn = connect(path)
-    mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
-    if str(mode).lower() != "wal":
-        conn.close()
-        raise InternalError(f"could not enable WAL on {path} (got {mode}); is it on a network share?",
-                            hint="put the board on a local disk")
-    migrate(conn)
-    return conn
+def _apply_migrations(conn: sqlite3.Connection, current: int, target: int) -> None:
+    for version in range(current + 1, target + 1):
+        MIGRATIONS[version](conn)
+        conn.execute("INSERT INTO meta(key, value) VALUES ('schema_version', ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value", (str(version),))
+
+
+def create(path: str, populate: Callable[[sqlite3.Connection], None] | None = None
+           ) -> sqlite3.Connection:
+    """Create a new board at `path`: WAL, the current schema and `populate(conn)` (seed rows),
+    all in one transaction on a private temporary file that is published under `path` only once
+    it is complete. Publishing never replaces a file: when `path` already exists (another
+    `init` won the race) this raises InvalidRequest and removes only its own temporary files,
+    so a board is never half-built, never clobbered and never deleted by a loser."""
+    import tempfile
+
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, temp = tempfile.mkstemp(prefix=".init-", suffix=".db", dir=directory)
+    os.close(fd)
+    try:
+        conn = connect(temp)
+        try:
+            mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+            if str(mode).lower() != "wal":
+                raise InternalError(f"could not enable WAL on {path} (got {mode}); is it on a "
+                                    f"network share?", hint="put the board on a local disk")
+            with write(conn):
+                _apply_migrations(conn, 0, SCHEMA_VERSION)
+                if populate is not None:
+                    populate(conn)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # every page in the main file
+        finally:
+            conn.close()
+        _publish(temp, path)
+    finally:
+        for leftover in (temp, temp + "-wal", temp + "-shm"):
+            try:
+                os.remove(leftover)
+            except FileNotFoundError:
+                pass
+    return open_board(path)
+
+
+def _exists_error(path: str) -> InvalidRequest:
+    return InvalidRequest(f"a board already exists at {path}", hint="earmark info")
+
+
+def _publish(temp: str, path: str) -> None:
+    """Give the finished file its real name only if that name is free. A hard link is atomic
+    create-if-absent; file systems without hard links fall back to an O_EXCL lock file around
+    an exists check and a rename."""
+    try:
+        os.link(temp, path)
+        return
+    except FileExistsError:
+        raise _exists_error(path) from None
+    except OSError:
+        pass
+    lock = os.path.join(os.path.dirname(path), ".init.lock")
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        raise InvalidRequest(f"another earmark init is creating {path}",
+                             hint=f"earmark info  (if no init is running, remove {lock})") from None
+    try:
+        os.close(fd)
+        if os.path.exists(path):
+            raise _exists_error(path)
+        os.replace(temp, path)
+    finally:
+        os.remove(lock)
+
+
+def ensure_wal(conn: sqlite3.Connection) -> str:
+    """Switch a board back to WAL when it is not (a restored backup is in DELETE mode).
+    Returns the resulting mode; a board that cannot switch (locked, network share) keeps
+    working and `doctor` reports it."""
+    mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+    if mode != "wal":
+        try:
+            mode = str(conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]).lower()
+        except sqlite3.OperationalError:
+            pass
+    return mode
 
 
 def open_board(path: str) -> sqlite3.Connection:
-    """Connect to an existing board and bring its schema up to date."""
+    """Connect to an existing board, bring its schema up to date and make sure it runs in WAL."""
     conn = connect(path)
     try:
         version = schema_version(conn)
@@ -264,12 +334,13 @@ def open_board(path: str) -> sqlite3.Connection:
     if version == 0:
         conn.close()
         raise NoBoard(f"{path} is not an earmark board (no meta table)", hint="earmark init")
-    if version < SCHEMA_VERSION:
-        migrate(conn)
-    elif version > SCHEMA_VERSION:
+    if version > SCHEMA_VERSION:
         conn.close()
         raise InvalidRequest(f"this board uses schema {version}; this earmark understands up to "
                              f"{SCHEMA_VERSION}", hint="upgrade earmark")
+    ensure_wal(conn)
+    if version < SCHEMA_VERSION:
+        migrate(conn)
     return conn
 
 

@@ -295,6 +295,53 @@ class Init(TempDir):
             with mock.patch.dict(os.environ, {"USER": "", "USERNAME": ""}):
                 self.assertEqual(default_owner(plain), "owner")
 
+    def test_restored_backup_returns_to_wal(self):
+        board = self.board()
+        board.create_issue("x")
+        copy = board.backup(os.path.join(self.tmp, "bk"))["path"]
+        with sqlite3.connect(copy) as plain:
+            self.assertEqual(plain.execute("PRAGMA journal_mode").fetchone()[0], "delete")
+        restored = os.path.join(self.tmp, "restored", ".earmark")
+        os.makedirs(restored)
+        shutil.copy(copy, os.path.join(restored, "earmark.db"))
+        again = Board.open(db=restored, actor="owner")
+        self.addCleanup(again.close)
+        again.create_issue("y")
+        self.assertEqual(again.conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+        self.assertTrue([c for c in again.doctor() if c["name"] == "wal"][0]["ok"])
+
+    def test_init_publishes_only_a_complete_board(self):
+        root = os.path.join(self.tmp, "atomic")
+        os.makedirs(root)
+        board_dir = os.path.join(root, ".earmark")
+        seen = []
+
+        def spy(conn, **kw):
+            seen.append(os.path.exists(os.path.join(board_dir, "earmark.db")))
+            raise RuntimeError("seed fails")
+
+        with mock.patch("earmark.board._seed_board", side_effect=spy):
+            with self.assertRaises(RuntimeError):
+                Board.init(root, owner="x")
+        self.assertEqual(seen, [False])  # never visible under its real name while building
+        self.assertEqual(sorted(os.listdir(board_dir)), [".gitignore", "files"])
+        with open(os.path.join(board_dir, ".gitignore"), "w") as fh:
+            fh.write("custom\n")
+        Board.init(root, owner="x").close()
+        with open(os.path.join(board_dir, ".gitignore")) as fh:
+            self.assertEqual(fh.read(), "custom\n")  # an existing file is never rewritten
+
+    def test_init_without_hard_links_still_refuses_an_existing_board(self):
+        root = os.path.join(self.tmp, "nolink")
+        os.makedirs(root)
+        with mock.patch("os.link", side_effect=PermissionError("no hard links here")):
+            Board.init(root, owner="x").close()
+            path = os.path.join(root, ".earmark", "earmark.db")
+            with self.assertRaises(InvalidRequest) as ctx:
+                db.create(path)
+        self.assertIn("a board already exists", ctx.exception.message)
+        self.assertEqual([f for f in os.listdir(os.path.dirname(path)) if f.startswith(".init")], [])
+
     def test_open_is_cheap(self):
         board = self.board()
         for _ in range(200):

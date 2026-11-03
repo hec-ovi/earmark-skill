@@ -1,6 +1,7 @@
 """Many processes on one board: 12 workers loop next → comment → review until empty while
 4 reviewers approve. Every issue is claimed once, no busy error surfaces, comment ids stay
-unique and ordered per issue."""
+unique and ordered per issue. Eight processes racing `init` in one directory: exactly one
+wins, every loser gets "a board already exists", and the winner's board stays whole."""
 
 from __future__ import annotations
 
@@ -72,6 +73,63 @@ def _reviewer(path: str, handle: str, start, results) -> None:
     except Exception:
         out["errors"].append(traceback.format_exc())
     results.put(out)
+
+
+INIT_RACERS = 8
+INIT_TRIALS = 30
+
+
+def _init_racer(dirs: list, barrier, results) -> None:
+    out = []
+    for directory in dirs:
+        barrier.wait(DEADLINE_S)
+        try:
+            Board.init(directory, prefix="RACE", owner="owner").close()
+            out.append(("ok", None))
+        except Exception as exc:  # the parent checks every outcome
+            out.append((type(exc).__name__, getattr(exc, "message", str(exc))))
+    results.put(out)
+
+
+class InitRace(unittest.TestCase):
+    def test_concurrent_init_has_one_winner_and_a_whole_board(self):
+        tmp = tempfile.mkdtemp(prefix="earmark-init-race-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        dirs = []
+        for n in range(INIT_TRIALS):
+            dirs.append(os.path.join(tmp, f"trial-{n}"))
+            os.makedirs(dirs[-1])
+        ctx = multiprocessing.get_context("spawn")
+        barrier, results = ctx.Barrier(INIT_RACERS), ctx.Queue()
+        procs = [ctx.Process(target=_init_racer, args=(dirs, barrier, results))
+                 for _ in range(INIT_RACERS)]
+        for proc in procs:
+            proc.start()
+        outcomes = [results.get(timeout=DEADLINE_S + 30) for _ in procs]
+        for proc in procs:
+            proc.join(30)
+        self.assertEqual([p.exitcode for p in procs], [0] * INIT_RACERS)
+        for n, directory in enumerate(dirs):
+            trial = [o[n] for o in outcomes]
+            with self.subTest(trial=n):
+                self.assertEqual(sum(1 for kind, _ in trial if kind == "ok"), 1, trial)
+                for kind, message in trial:
+                    if kind != "ok":
+                        self.assertEqual(kind, "InvalidRequest", message)
+                        self.assertIn("a board already exists at", message)
+                board_dir = os.path.join(directory, ".earmark")
+                leftovers = [f for f in os.listdir(board_dir) if f.startswith(".init")]
+                self.assertEqual(leftovers, [])
+                board = Board.open(db=board_dir, actor="owner")
+                try:
+                    self.assertEqual(board.prefix, "RACE")
+                    self.assertEqual(board.conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+                    slugs = {p["slug"] for p in board.profiles()}
+                    self.assertTrue({"worker", "reviewer", "pm"} <= slugs)
+                    self.assertEqual([a["handle"] for a in board.team()["agents"]], ["owner"])
+                    self.assertEqual(board.create_issue("works")["key"], "RACE-1")
+                finally:
+                    board.close()
 
 
 class Stress(unittest.TestCase):

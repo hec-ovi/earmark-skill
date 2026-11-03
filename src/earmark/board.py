@@ -56,7 +56,10 @@ class Board(IssuesMixin, WorkflowMixin, CommentsMixin, AttachmentsMixin, TopicsM
     @classmethod
     def init(cls, directory: str, *, prefix: str | None = None, owner: str | None = None,
              require_review: bool = True) -> "Board":
-        """Create <directory>/.earmark/earmark.db, seed profiles, create the owner agent."""
+        """Create <directory>/.earmark/earmark.db, seed profiles, create the owner agent.
+        Schema, seed and owner land in one transaction on a private file that appears under
+        its real name only when complete; when several inits race, exactly one wins and the
+        others fail with "a board already exists" without touching the winner's files."""
         root = os.path.abspath(directory)
         if not os.path.isdir(root):
             raise InvalidRequest(f"{root} is not a directory")
@@ -67,20 +70,13 @@ class Board(IssuesMixin, WorkflowMixin, CommentsMixin, AttachmentsMixin, TopicsM
         prefix = model.parse_prefix(prefix) if prefix else model.default_prefix(os.path.basename(root))
         owner = model.parse_handle(owner, "owner handle") if owner else default_owner(root)
         os.makedirs(os.path.join(board_dir, FILES_DIR), exist_ok=True)
-        ignore = os.path.join(board_dir, ".gitignore")
-        if not os.path.exists(ignore):
-            with open(ignore, "w", encoding="utf-8") as fh:
-                fh.write("*\n")
-        conn = _db.create(path)
         try:
-            with _db.write(conn):
-                _seed_board(conn, prefix=prefix, owner=owner, require_review=require_review)
-        except BaseException:
-            conn.close()
-            for leftover in (path, path + "-wal", path + "-shm"):
-                if os.path.exists(leftover):
-                    os.remove(leftover)
-            raise
+            with open(os.path.join(board_dir, ".gitignore"), "x", encoding="utf-8") as fh:
+                fh.write("*\n")
+        except FileExistsError:
+            pass
+        conn = _db.create(path, lambda c: _seed_board(c, prefix=prefix, owner=owner,
+                                                     require_review=require_review))
         return cls(path, conn, owner)
 
     def close(self) -> None:
