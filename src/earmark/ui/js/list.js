@@ -141,6 +141,7 @@ function Row({ it }) {
         <${TopicChip} path=${it.topic} />
       </span>
       <span class="row-due"><${DueChip} due=${it.due} status=${it.status} /></span>
+      ${it.attachment_count ? html`<span class="meta-ico attach" title=${plural(it.attachment_count, 'attachment')}><${Icon} name="paperclip" size=${13} />${it.attachment_count}</span>` : null}
       ${it.comment_count ? html`<span class="meta-ico comments" title=${plural(it.comment_count, 'comment')}><${Icon} name="message-square" size=${13} />${it.comment_count}</span>` : html`<span class="meta-ico comments is-zero"></span>`}
     </span>
     <span class="row-av"><${Avatar} handle=${it.assignee} size=${22} /></span>

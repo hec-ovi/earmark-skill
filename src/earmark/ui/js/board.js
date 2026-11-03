@@ -79,6 +79,7 @@ function Card({ it }) {
       <span class="card-spacer"></span>
       <${DueChip} due=${it.due} status=${it.status} />
       ${it.children ? html`<span class="meta-ico" title=${plural(it.children, 'sub-issue')}><${Icon} name="list-tree" size=${12} />${it.children}</span>` : null}
+      ${it.attachment_count ? html`<span class="meta-ico" title=${plural(it.attachment_count, 'attachment')}><${Icon} name="paperclip" size=${12} />${it.attachment_count}</span>` : null}
       ${it.comment_count ? html`<span class="meta-ico" title=${plural(it.comment_count, 'comment')}><${Icon} name="message-square" size=${12} />${it.comment_count}</span>` : null}
     </div>
   </a>`;
