@@ -103,7 +103,7 @@ class ShowTests(unittest.TestCase):
         with fake_board() as boards, at_day():
             _, out, _ = run_main(["show", "42", "-c"])
         self.assertEqual(boards[0].called("get_issue"), [(("42",), {"comments": 5})])
-        self.assertIn("last 2 of 12 comments:\n#1187  claude-ui  progress  2026-11-03T14:05:09Z\n  Moved", out)
+        self.assertIn("last 2 of 12 comments:\n#1187  claude-ui  progress  11-03 14:05\n  Moved", out)
 
     def test_json_is_the_issue(self):
         with fake_board(get_issue=lambda key, comments=0: issue()):
@@ -118,6 +118,11 @@ class CommentsInboxTests(unittest.TestCase):
         self.assertEqual(out, contract_block("#1187  claude-ui") + "\n")
         self.assertEqual(boards[0].called("list_comments"),
                          [(("42",), {"since": None, "new": False, "last": None, "limit": 100})])
+
+    def test_comments_json_keeps_iso_times(self):
+        with fake_board():
+            _, out, _ = run_main(["comments", "42", "--json"])
+        self.assertEqual(json.loads(out)["data"]["items"][0]["created_at"], "2026-11-03T14:05:09Z")
 
     def test_comments_flags(self):
         with fake_board() as boards:
@@ -139,7 +144,7 @@ class CommentsInboxTests(unittest.TestCase):
         with fake_board() as boards:
             _, out, _ = run_main(["inbox", "--as", "claude-ui"])
         self.assertEqual(boards[0].called("inbox"), [((), {"peek": False, "limit": 50})])
-        self.assertEqual(out.splitlines()[0], "GAME-42  #1187  claude-ui  progress  2026-11-03T14:05:09Z")
+        self.assertEqual(out.splitlines()[0], "GAME-42  #1187  claude-ui  progress  11-03 14:05")
         with fake_board(inbox={"items": [], "last_id": None, "has_more": False, "cursor": 1190}) as boards:
             code, out, _ = run_main(["inbox", "--peek", "--as", "claude-ui"])
         self.assertEqual(boards[0].called("inbox"), [((), {"peek": True, "limit": 50})])

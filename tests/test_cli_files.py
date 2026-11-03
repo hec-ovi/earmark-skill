@@ -63,7 +63,7 @@ class RenderTests(unittest.TestCase):
         c = comment(1190, "codex-qa", "note", "see", "2026-11-03T15:10:44Z", reply_to=1187)
         c["attachments"] = SAMPLE
         self.assertEqual(R.comment_lines(c)[0],
-                         "#1190  codex-qa  note  2026-11-03T15:10:44Z  reply-to:#1187  " + "files:@12,@13")
+                         "#1190  codex-qa  note  11-03 15:10  reply-to:#1187  " + "files:@12,@13")
         self.assertIn("files:@12,@13", contract_line("files:@"))
 
     def test_attachment_detail(self):
@@ -164,7 +164,7 @@ class EndToEndTests(CliBoardCase):
         show = self.ok("show", "1").splitlines()
         self.assertEqual(show[show.index("comments: 1, last #1") + 1], "attachments: 2 (1 image, 1 audio)")
         self.assertEqual(self.ok("comments", "1").splitlines()[0],
-                         "#1  claude-ui  progress  2026-11-03T10:02:11Z  files:@1")
+                         "#1  claude-ui  progress  11-03 10:02  files:@1")
         self.assertTrue(self.ok("ls").splitlines()[1].endswith("c:1 a:2"))
         detail = self.ok("attachment", "@2").splitlines()
         self.assertEqual(detail[0], "@2  ambience-v2.ogg")

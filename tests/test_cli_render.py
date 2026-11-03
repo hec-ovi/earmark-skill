@@ -164,13 +164,19 @@ class CommentTests(unittest.TestCase):
     def test_multiline_body_and_edited(self):
         c = comment(5, "a", "question", "one\n\n  two", "2026-11-03T00:00:00Z",
                     edited_at="2026-11-03T00:01:00Z")
-        self.assertEqual(R.comment_lines(c), ["#5  a  question  2026-11-03T00:00:00Z  edited",
+        self.assertEqual(R.comment_lines(c), ["#5  a  question  11-03 00:00  edited",
                                               "  one", "", "    two"])
+
+    def test_header_time_is_utc_month_day_hour_minute(self):
+        self.assertEqual(R.short_time("2026-11-03T14:05:09Z"), "11-03 14:05")
+        self.assertEqual(R.short_time("2026-11-03T23:30:00+02:00"), "11-03 21:30")
+        self.assertEqual(R.short_time(None), "-")
+        self.assertEqual(R.short_time("yesterday"), "yesterday")
 
     def test_inbox(self):
         page = {"items": COMMENTS, "last_id": 1190, "has_more": True, "cursor": 1190}
         out = R.render_inbox(page).splitlines()
-        self.assertEqual(out[0], "GAME-42  #1187  claude-ui  progress  2026-11-03T14:05:09Z")
+        self.assertEqual(out[0], "GAME-42  #1187  claude-ui  progress  11-03 14:05")
         self.assertEqual(out[-1], "last: #1190 · 2 comments · more: earmark inbox")
         self.assertEqual(R.render_inbox(page, peek=True).splitlines()[-1],
                          "last: #1190 · 2 comments · more: --peek --limit 4")

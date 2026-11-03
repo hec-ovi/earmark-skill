@@ -164,9 +164,9 @@ class CommentTests(SampleBoard):
         self.assertEqual(self.ok("comment", "--edit", "1", "Moved the widget state.", as_="claude-ui"),
                          "#1 edited\n")
         out = self.ok("comments", "1").splitlines()
-        self.assertEqual(out[:4], ["#1  claude-ui  progress  2026-11-03T10:02:11Z  edited",
+        self.assertEqual(out[:4], ["#1  claude-ui  progress  11-03 10:02  edited",
                                    "  Moved the widget state.",
-                                   "#2  codex-qa  note  2026-11-03T10:07:11Z  reply-to:#1",
+                                   "#2  codex-qa  note  11-03 10:07  reply-to:#1",
                                    "  Still resets. @claude-ui"])
         self.assertEqual(out[-1], "last: #4 · 4 comments")
         self.assertIn("error:", self.fails(1, "comment", "--edit", "1", "hijack", as_="codex-qa"))
@@ -181,7 +181,7 @@ class CommentTests(SampleBoard):
         self.assertEqual(self.ok("comments", "1", "--new", as_="claude-ui"),
                          "comments: nothing new after #3\n")
         self.assertEqual(self.ok("comments", "1", "--since", "2").splitlines()[0],
-                         "#3  hector  note  2026-11-03T10:02:11Z")
+                         "#3  hector  note  11-03 10:02")
         self.assertEqual(self.ok("comments", "1", "--last", "1").splitlines()[0][:2], "#3")
         out = self.ok("comments", "1", "--limit", "2").splitlines()
         self.assertEqual(out[-1], "last: #2 · 2 comments · more: --since 2")
@@ -193,7 +193,7 @@ class CommentTests(SampleBoard):
         self.ok("comment", "1", "ping @claude-ui", as_="hector")
         self.ok("comment", "1", "mine", as_="claude-ui")
         out = self.ok("inbox", "--peek", as_="claude-ui").splitlines()
-        self.assertEqual(out, ["GAME-1  #1  hector  note  2026-11-03T10:02:11Z", "  ping @claude-ui",
+        self.assertEqual(out, ["GAME-1  #1  hector  note  11-03 10:02", "  ping @claude-ui",
                                "last: #1 · 1 comment"])
         self.assertEqual(self.ok("inbox", as_="claude-ui").splitlines()[-1], "last: #1 · 1 comment")
         self.assertEqual(self.ok("inbox", as_="claude-ui"), "inbox: nothing new after #1\n")

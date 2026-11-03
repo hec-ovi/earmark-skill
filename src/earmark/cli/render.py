@@ -478,9 +478,26 @@ def render_fields(issue: dict, fields: Iterable[str]) -> str:
 
 # ---- comments and inbox ------------------------------------------------------------------
 
+def short_time(ts: Any) -> str:
+    """Comment header time: '2026-11-03T14:05:09Z' -> '11-03 14:05' (UTC); '-' when unknown."""
+    if not ts:
+        return "-"
+    s = str(ts)
+    if len(s) >= 16 and s[10] == "T" and s.endswith("Z"):
+        return f"{s[5:10]} {s[11:16]}"
+    try:
+        from datetime import datetime, timezone
+        moment = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if moment.tzinfo is not None:
+            moment = moment.astimezone(timezone.utc)
+        return moment.strftime("%m-%d %H:%M")
+    except ValueError:
+        return s
+
+
 def comment_lines(c: dict, *, with_key: bool = False, style: Style = PLAIN) -> list[str]:
     head = [f"#{c.get('id')}", str(c.get("author") or "-"), str(c.get("kind") or "note"),
-            str(c.get("created_at") or "-")]
+            short_time(c.get("created_at"))]
     if with_key:
         head.insert(0, str(c.get("issue") or "-"))
     if c.get("reply_to"):
