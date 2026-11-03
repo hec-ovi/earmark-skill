@@ -99,9 +99,36 @@ class ParseExit(Exception):
         self.status = status
 
 
+class _NoTheme:
+    """Stands in for 3.14's color theme: every style is the empty string."""
+
+    def __getattr__(self, name: str) -> str:
+        return ""
+
+
+def _identity(text: str) -> str:
+    return text
+
+
+class _Formatter(argparse.HelpFormatter):
+    """Fixed width (no terminal probe) and plain help. On 3.14 argparse builds a formatter while
+    adding arguments and its color setup imports _colorize, which pulls in dataclasses and
+    inspect (~15 ms); skipping it keeps `earmark ls` startup flat."""
+
+    def __init__(self, prog: str, *args, **kwargs) -> None:
+        kwargs.setdefault("max_help_position", 30)
+        kwargs["width"] = 100
+        super().__init__(prog, *args, **kwargs)
+
+    def _set_color(self, color) -> None:  # 3.14+
+        self._theme = _NoTheme()
+        self._decolor = _identity
+
+
 class Parser(argparse.ArgumentParser):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("allow_abbrev", False)
+        kwargs.setdefault("formatter_class", _Formatter)
         if sys.version_info >= (3, 14):
             kwargs.setdefault("suggest_on_error", True)
         super().__init__(*args, **kwargs)
@@ -113,11 +140,6 @@ class Parser(argparse.ArgumentParser):
         if message:
             sys.stderr.write(message)
         raise ParseExit(status)
-
-
-class _Formatter(argparse.HelpFormatter):
-    def __init__(self, prog: str) -> None:
-        super().__init__(prog, max_help_position=30, width=100)
 
 
 # ---- global flags ----------------------------------------------------------------------

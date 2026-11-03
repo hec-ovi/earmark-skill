@@ -164,11 +164,9 @@ def _write(stream, text: str) -> None:
 
 def handler_for(command: str) -> Callable:
     """cmd_<name> from the family module (cmd_read, cmd_work, ...), imported on demand."""
-    from importlib import import_module
-
     from earmark.cli.parser import COMMANDS
     group = COMMANDS[command.split()[0]][0].lower()
-    module = import_module(f"earmark.cli.cmd_{group}")
+    module = __import__(f"earmark.cli.cmd_{group}", fromlist=["cmd"])
     return getattr(module, "cmd_" + command.replace(" ", "_"))
 
 
