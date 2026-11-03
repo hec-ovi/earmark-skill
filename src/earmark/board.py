@@ -91,7 +91,9 @@ class Board(IssuesMixin, WorkflowMixin, CommentsMixin, AttachmentsMixin, TopicsM
         self.close()
 
     def touch(self) -> None:
-        """Refresh agents.last_seen for the actor, at most once per 60 s. No-op without actor."""
+        """Refresh agents.last_seen for the actor, at most once per 60 s. No-op without actor,
+        and for an agent that left: a read never brings it back online nor moves its last_seen
+        (the time it left); only `join` and writes (which refresh in their own transaction) do."""
         if not self.actor:
             return
         now = timeutil.now()
@@ -100,11 +102,11 @@ class Board(IssuesMixin, WorkflowMixin, CommentsMixin, AttachmentsMixin, TopicsM
             return
         row = self.conn.execute("SELECT last_seen, online FROM agents WHERE handle = ?",
                                 (self.actor,)).fetchone()
-        if row is None:
+        if row is None or not row[1]:
             return
-        if row[0] < cutoff or not row[1]:  # a command by an agent that left brings it back
+        if row[0] < cutoff:
             with _db.write(self.conn) as conn:
-                self._refresh_seen(conn, self.actor, row[0], now, online=bool(row[1]))
+                self._refresh_seen(conn, self.actor, row[0], now)
         else:
             self._seen_checked = row[0]
 

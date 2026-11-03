@@ -296,7 +296,7 @@ class TeamMixin:
                             (tx.ts, tx.actor))
             self._event(tx, None, "leave", None, ",".join(returned) or None)
             agent = views.agents(tx.conn, self.prefix, [self._actor_row(tx.conn)], tx.now)[0]
-        self._seen_checked = None  # offline now: the next command by this agent brings it back
+        self._seen_checked = None  # offline now: only its next join or write brings it back
         return {"agent": agent, "returned": returned}
 
     def _return_work(self, tx: Tx) -> list[str]:

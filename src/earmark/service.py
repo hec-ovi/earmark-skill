@@ -142,15 +142,16 @@ class BoardBase:
     def _refresh_seen(self, conn, actor: str, last_seen: str, now: datetime, *,
                       online: bool = True) -> None:
         """Conditional write: only when last_seen is older than the throttle window, or the
-        agent had left (any command by it marks it online again)."""
+        agent had left (online=False: a write by it marks it online again; reads never do, see
+        Board.touch). The throttled refresh touches online agents only."""
         cutoff = timeutil.iso(now - timedelta(seconds=SEEN_THROTTLE_S))
         if not online:
             conn.execute("UPDATE agents SET online = 1, last_seen = ? WHERE handle = ?",
                          (timeutil.iso(now), actor))
             last_seen = timeutil.iso(now)
         elif last_seen < cutoff:
-            conn.execute("UPDATE agents SET last_seen = ? WHERE handle = ? AND last_seen < ?",
-                         (timeutil.iso(now), actor, cutoff))
+            conn.execute("UPDATE agents SET last_seen = ? WHERE handle = ? AND last_seen < ? "
+                         "AND online = 1", (timeutil.iso(now), actor, cutoff))
             last_seen = timeutil.iso(now)
         self._seen_checked = last_seen
 
