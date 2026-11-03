@@ -270,6 +270,15 @@ class Init(TempDir):
         with self.assertRaises(InvalidRequest):
             Board.init(os.path.join(self.tmp, "bad"), prefix="9X", owner="x")
 
+    def test_failed_seed_leaves_no_half_board(self):
+        root = os.path.join(self.tmp, "half")
+        os.makedirs(root)
+        with mock.patch.object(seed, "profile_seeds", side_effect=RuntimeError("bad seed")):
+            with self.assertRaises(RuntimeError):
+                Board.init(root, owner="x")
+        self.assertFalse(os.path.exists(os.path.join(root, ".earmark", "earmark.db")))
+        Board.init(root, owner="x").close()
+
     @unittest.skipUnless(shutil.which("git"), "git not installed")
     def test_owner_from_git_then_user_then_owner(self):
         repo = os.path.join(self.tmp, "repo")

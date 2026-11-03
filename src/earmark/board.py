@@ -70,8 +70,15 @@ class Board(IssuesMixin, WorkflowMixin, CommentsMixin, TopicsMixin, TeamMixin, A
             with open(ignore, "w", encoding="utf-8") as fh:
                 fh.write("*\n")
         conn = _db.create(path)
-        with _db.write(conn):
-            _seed_board(conn, prefix=prefix, owner=owner, require_review=require_review)
+        try:
+            with _db.write(conn):
+                _seed_board(conn, prefix=prefix, owner=owner, require_review=require_review)
+        except BaseException:
+            conn.close()
+            for leftover in (path, path + "-wal", path + "-shm"):
+                if os.path.exists(leftover):
+                    os.remove(leftover)
+            raise
         return cls(path, conn, owner)
 
     def close(self) -> None:
