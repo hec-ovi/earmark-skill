@@ -113,7 +113,12 @@ class BoardCommandTests(LauncherCase):
         self.assertEqual(self.run_ok().stdout, top)
         sub = self.run_ok("topic", "add", "-h").stdout
         self.assertTrue(sub.startswith("usage: earmark topic add"))
-        self.assertNotIn("--json", sub.split("options:")[1], "global flags are hidden in nested help")
+        options, epilog = sub.split("options:")[1].split("\nglobal: ")
+        self.assertNotIn("--json", options, "global flags fold into one epilog line")
+        self.assertEqual(epilog, "--as HANDLE (or EARMARK_AS) · --db PATH (or EARMARK_DB) · --json\n")
+        ls_help = self.run_ok("ls", "-h").stdout
+        self.assertNotIn("[--as HANDLE]", ls_help)
+        self.assertIn("--ready", ls_help)
 
 
 class WaitTests(LauncherCase):

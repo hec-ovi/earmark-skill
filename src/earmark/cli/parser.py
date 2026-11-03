@@ -249,7 +249,7 @@ def b_ls(p):
     p.add_argument("--type", metavar="LIST", help="bug, feature, task, chore")
     p.add_argument("-l", "--label", action="append", default=[], metavar="L",
                    help="label; repeatable, all must match")
-    p.add_argument("--due-before", metavar="DATE")
+    p.add_argument("--due-before", metavar="DATE", help="due before DATE")
     p.add_argument("--overdue", action="store_true", help="past due and not closed")
     p.add_argument("--updated-since", metavar="WHEN", help="30m, 2h, 3d, 1w or a date")
     p.add_argument("--created-since", metavar="WHEN", help="30m, 2h, 3d, 1w or a date")
@@ -356,21 +356,21 @@ def b_new(p):
 
 def b_edit(p):
     _key(p)
-    p.add_argument("--title", metavar="T")
+    p.add_argument("--title", metavar="T", help="new title")
     g = _body(p)
     g.add_argument("--append", metavar="TEXT", help="append to the description")
     t = p.add_mutually_exclusive_group()
-    t.add_argument("-t", "--topic", metavar="PATH")
+    t.add_argument("-t", "--topic", metavar="PATH", help="move to an existing topic")
     t.add_argument("--no-topic", action="store_true", help="clear the topic")
-    p.add_argument("-p", "--priority", metavar="PRIO")
-    p.add_argument("--type", metavar="T")
+    p.add_argument("-p", "--priority", metavar="PRIO", help="urgent, high, medium, low, none")
+    p.add_argument("--type", metavar="T", help="bug, feature, task, chore")
     d = p.add_mutually_exclusive_group()
-    d.add_argument("--due", metavar="DATE")
+    d.add_argument("--due", metavar="DATE", help="2026-11-07, today, tomorrow, +3d, +2w")
     d.add_argument("--no-due", action="store_true", help="clear the due date")
     p.add_argument("-l", "--label", action="append", default=[], metavar="+L|-L",
                    help="add (+L or L) or remove (-L) a label; repeatable")
     r = p.add_mutually_exclusive_group()
-    r.add_argument("--parent", metavar="KEY")
+    r.add_argument("--parent", metavar="KEY", help="make it a sub-issue of KEY")
     r.add_argument("--no-parent", action="store_true", help="clear the parent")
     p.add_argument("--if-version", type=int, metavar="N", help="fail with exit 3 if the issue moved on")
 
@@ -379,7 +379,7 @@ def b_comment(p):
     p.add_argument("key", nargs="?", metavar="KEY", help="issue key (omit with --edit)")
     p.add_argument("text", nargs="?", metavar="TEXT", help="comment body; '-' reads stdin")
     p.add_argument("--body-file", metavar="F", help="read the body from F ('-' for stdin)")
-    p.add_argument("--kind", choices=("note", "progress", "question"), default=None,
+    p.add_argument("--kind", choices=("note", "progress", "question"), default=None, metavar="K",
                    help="note (default), progress, question")
     p.add_argument("--reply-to", metavar="ID", help="comment id this answers")
     p.add_argument("--edit", metavar="ID", help="replace the body of your comment ID")
@@ -388,7 +388,7 @@ def b_comment(p):
 def b_link(p):
     _key(p)
     p.add_argument("kind", choices=LINK_KINDS, metavar="KIND", help="blocks, duplicates or relates")
-    p.add_argument("target", metavar="KEY2")
+    p.add_argument("target", metavar="KEY2", help="the other issue")
 
 
 b_unlink = b_link
@@ -402,10 +402,10 @@ def b_assign(p):
 def b_rank(p):
     _key(p)
     g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--before", metavar="KEY2")
-    g.add_argument("--after", metavar="KEY2")
-    g.add_argument("--top", action="store_true")
-    g.add_argument("--bottom", action="store_true")
+    g.add_argument("--before", metavar="KEY2", help="just above KEY2")
+    g.add_argument("--after", metavar="KEY2", help="just below KEY2")
+    g.add_argument("--top", action="store_true", help="first in rank order")
+    g.add_argument("--bottom", action="store_true", help="last in rank order")
 
 
 def b_delete(p):
@@ -420,19 +420,19 @@ def b_topic(p):
     def topic_fields(q):
         q.add_argument("--name", metavar="N", help="display name")
         q.add_argument("--icon", metavar="I", help="icon name")
-        q.add_argument("--description", metavar="D")
+        q.add_argument("--description", metavar="D", help="one line on what lives here")
 
     a = _sub(sub, "add", "create a topic (missing ancestors too)")
     a.add_argument("path", metavar="PATH", help="e.g. ui-ux/video-calls")
     topic_fields(a)
     e = _sub(sub, "edit", "change a topic's name, icon or description")
-    e.add_argument("path", metavar="PATH")
+    e.add_argument("path", metavar="PATH", help="topic path")
     topic_fields(e)
     m = _sub(sub, "mv", "move or rename a topic and its subtree")
-    m.add_argument("path", metavar="PATH")
-    m.add_argument("new_path", metavar="NEW_PATH")
+    m.add_argument("path", metavar="PATH", help="topic path")
+    m.add_argument("new_path", metavar="NEW_PATH", help="where it goes, with its subtree")
     r = _sub(sub, "rm", "remove an empty topic, or archive it")
-    r.add_argument("path", metavar="PATH")
+    r.add_argument("path", metavar="PATH", help="topic path")
     r.add_argument("--archive", action="store_true", help="archive instead (keeps its issues)")
 
 
@@ -462,7 +462,7 @@ def b_profile(p):
         g.add_argument("--prompt-file", metavar="F", help="read the prompt from F ('-' for stdin)")
         q.add_argument("-t", "--topic", action="append", default=[], metavar="PATH",
                        help="scope subtree; repeatable (none = whole board)")
-        q.add_argument("--icon", metavar="I")
+        q.add_argument("--icon", metavar="I", help="icon name")
 
     s = _sub(sub, "show", "full prompt and scope")
     s.add_argument("slug", metavar="SLUG")
@@ -470,15 +470,16 @@ def b_profile(p):
     a.add_argument("slug", metavar="SLUG")
     a.add_argument("--role", required=True, choices=("worker", "reviewer", "pm"), metavar="R",
                    help="worker, reviewer or pm")
-    a.add_argument("--name", required=True, metavar="N")
+    a.add_argument("--name", required=True, metavar="N", help="display name")
     prompt_args(a)
     e = _sub(sub, "edit", "change a profile (owner or pm)")
     e.add_argument("slug", metavar="SLUG")
-    e.add_argument("--role", choices=("worker", "reviewer", "pm"), metavar="R")
-    e.add_argument("--name", metavar="N")
+    e.add_argument("--role", choices=("worker", "reviewer", "pm"), metavar="R",
+                   help="worker, reviewer or pm")
+    e.add_argument("--name", metavar="N", help="display name")
     prompt_args(e)
     e.add_argument("--whole-board", action="store_true", help="clear the scope")
-    e.add_argument("--if-version", type=int, metavar="N")
+    e.add_argument("--if-version", type=int, metavar="N", help="fail with exit 3 if it moved on")
     r = _sub(sub, "rm", "remove a profile (owner or pm)")
     r.add_argument("slug", metavar="SLUG")
 
@@ -510,8 +511,12 @@ def b_config(p):
     p.add_argument("value", nargs="?", metavar="VALUE")
 
 
+GLOBAL_EPILOG = "global: --as HANDLE (or EARMARK_AS) · --db PATH (or EARMARK_DB) · --json"
+
+
 def _sub(sub, name: str, desc: str) -> Parser:
-    q = sub.add_parser(name, help=desc, description=desc, formatter_class=_Formatter)
+    q = sub.add_parser(name, help=desc, description=desc, formatter_class=_Formatter,
+                       epilog=GLOBAL_EPILOG)
     _globals(q, suppress_help=True)
     return q
 
@@ -546,8 +551,9 @@ def parse(argv: list[str]) -> tuple[str, argparse.Namespace]:
     _globals(root)
     subs = root.add_subparsers(dest="command", parser_class=Parser)
     p = subs.add_parser(cmd, prog=f"earmark {cmd}", description=COMMANDS[cmd][1],
-                        formatter_class=_Formatter)
-    _globals(p)
+                        formatter_class=_Formatter,
+                        epilog=None if cmd in SUBCOMMANDS else GLOBAL_EPILOG)
+    _globals(p, suppress_help=True)
     builder: Callable = globals()["b_" + cmd]
     builder(p)
     args = normalize(argv)
