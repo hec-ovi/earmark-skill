@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from test_cli_support import CliBoardCase  # noqa: E402
+from test_cli_support import CliBoardCase, strip_hint  # noqa: E402
 
 
 class WorkFlowTests(CliBoardCase):
@@ -62,7 +62,7 @@ class WorkFlowTests(CliBoardCase):
                                        "GAME-2  Mute button state\nstatus: in_progress"), out)
         self.ok("claim", "1", as_="codex-qa")
         code, out, _ = self.cli("approve", "1", "-m", "ok", "--next", as_="codex-qa")
-        self.assertEqual((code, out), (4, "GAME-1 approved · done\nnext: nothing to review in your scope · "
+        self.assertEqual((code, strip_hint(out)), (4, "GAME-1 approved · done\nnext: nothing to review in your scope · "
                                           "review queue: 0 · inbox: 1 new · stale: 0\n"))
         self.assertEqual(self.ok("show", "1", "-f", "status"), "status: done\n")  # committed anyway
 

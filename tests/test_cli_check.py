@@ -10,7 +10,10 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from test_cli_support import DAY, contract_block, contract_line, fake_board, run_main  # noqa: E402
+from test_cli_support import (DAY, CliBoardCase, contract_block, contract_line,  # noqa: E402
+                              fake_board, run_main)
+
+from earmark.board import Board  # noqa: E402
 
 from earmark.cli import render as R  # noqa: E402
 
@@ -71,6 +74,11 @@ class CheckRenderTests(unittest.TestCase):
         self.assertEqual(R.check_parts(item("GAME-1", {"kind": "assigned", "by": "pm"}, priority="low")),
                          ["new for you (assigned by pm)", "low"])
 
+    def test_new_for_you_leads(self):
+        self.assertEqual(R.check_parts(item("GAME-1", {"kind": "field", "field": "links"},
+                                            {"kind": "assigned", "by": "pm"}, priority="high", blocks_open=2)),
+                         ["new for you (assigned by pm)", "high", "blocks:2", "links changed"])
+
     def test_lease_warning_and_more(self):
         res = feed([item("GAME-5", comments=1)], holding=[
             {"key": "GAME-1", "lease_until": "x", "lease_left_min": 12},
@@ -107,6 +115,28 @@ class CheckCommandTests(unittest.TestCase):
     def test_listed_in_help(self):
         code, out, _ = run_main(["-h"])
         self.assertIn(" check ", out)
+
+
+@unittest.skipUnless(hasattr(Board, "check") and hasattr(Board, "pending_changes"),
+                     "the board has no check feed yet")
+class RealCheckTests(CliBoardCase):
+    def test_feed_peek_and_hint(self):
+        self.ok("join", "worker", as_="w1")
+        self.assertTrue(self.ok("check", as_="w1").startswith("check: nothing new since 10:02:11Z"))
+        self.ok("new", "Eye", "-p", "high", as_="hector")
+        self.ok("assign", "1", "w1", as_="hector")
+        self.ok("comment", "1", "which tab? @w1", "--kind", "question", as_="hector")
+        peek = self.ok("check", "--peek", as_="w1").splitlines()
+        self.assertEqual(peek[0], "check: since 10:02:11Z · todo for you: 1")
+        self.assertEqual(peek[1], "GAME-1  new for you (assigned by hector) · high · "
+                                  "1 new comment, question for you")
+        self.assertEqual(self.ok("claim", "1", as_="w1", hint=True).splitlines()[-1],
+                         "· 1 change for you: earmark check")
+        self.assertEqual(self.ok("check", as_="w1").splitlines()[1:], peek[1:])
+        self.assertTrue(self.ok("check", as_="w1").startswith("check: nothing new"))
+        self.assertEqual(self.ok("comment", "1", "on it", as_="w1", hint=True).count("changes for you"), 0)
+        env = self.json("check", "--peek", as_="w1")
+        self.assertEqual((env["data"]["changed"], env["data"]["holding"][0]["key"]), ([], "GAME-1"))
 
 
 if __name__ == "__main__":

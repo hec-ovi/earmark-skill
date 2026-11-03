@@ -999,7 +999,9 @@ def check_change(c: dict) -> str:
 
 def check_parts(item: dict) -> list[str]:
     parts: list[str] = []
-    for c in item.get("changes") or []:
+    changes = item.get("changes") or []
+    # what makes it yours leads the line
+    for c in sorted(changes, key=lambda c: c.get("kind") != "assigned"):
         parts.append(check_change(c))
         if c.get("kind") == "assigned":
             if item.get("priority"):

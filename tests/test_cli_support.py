@@ -241,6 +241,14 @@ def run_launcher(argv: list[str], *, cwd: str | None = None, stdin: str = "",
 
 # ---- real boards -------------------------------------------------------------------------
 
+HINT_RE = re.compile(r"^· \d+ changes? for you: earmark check\n", re.M)
+
+
+def strip_hint(out: str) -> str:
+    """Text output without the dirty hint line."""
+    return HINT_RE.sub("", out)
+
+
 class CliBoardCase(unittest.TestCase):
     """A fresh board in a temp dir (owner hector, prefix GAME), a
     frozen board clock, and self.cli(...) running main(argv) against it."""
@@ -276,11 +284,13 @@ class CliBoardCase(unittest.TestCase):
             full += ["--as", as_]
         return run_main(full, stdin=stdin, env=env)
 
-    def ok(self, *argv, as_: str | None = None, stdin: str = "") -> str:
+    def ok(self, *argv, as_: str | None = None, stdin: str = "", hint: bool = False) -> str:
+        """stdout of a successful call; the dirty hint line is dropped unless hint=True (tests of
+        a command's own output do not depend on what else changed on the board)."""
         code, out, err = self.cli(*argv, as_=as_, stdin=stdin)
         if code != 0:
             raise AssertionError(f"earmark {' '.join(argv)} -> {code}\n{out}{err}")
-        return out
+        return out if hint else strip_hint(out)
 
     def fails(self, code: int, *argv, as_: str | None = None, stdin: str = "") -> str:
         got, out, err = self.cli(*argv, as_=as_, stdin=stdin)
