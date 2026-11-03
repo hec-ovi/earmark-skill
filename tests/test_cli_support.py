@@ -9,6 +9,7 @@ import os
 import re
 import subprocess
 import sys
+import unittest
 from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -235,3 +236,58 @@ def run_launcher(argv: list[str], *, cwd: str | None = None, stdin: str = "",
     return subprocess.run([sys.executable, LAUNCHER, *argv], cwd=cwd, input=stdin,
                           capture_output=True, text=True, env=clean_env(**(env or {})),
                           timeout=timeout, encoding="utf-8")
+
+
+# ---- real boards -------------------------------------------------------------------------
+
+class CliBoardCase(unittest.TestCase):
+    """A fresh board in a temp dir (owner hector, prefix GAME), a
+    frozen board clock, and self.cli(...) running main(argv) against it."""
+
+    prefix = "GAME"
+    review = True
+
+    def setUp(self):
+        import shutil
+        import tempfile
+        from datetime import datetime, timezone
+
+        from earmark import timeutil
+        self.tmp = tempfile.mkdtemp(prefix="earmark-cli-test-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.now = datetime(2026, 11, 3, 10, 2, 11, tzinfo=timezone.utc)
+        timeutil.set_clock(lambda: self.now)
+        self.addCleanup(timeutil.reset_clock)
+        self.db = os.path.join(self.tmp, ".earmark", "earmark.db")
+        argv = ["init", "--db", self.tmp, "--prefix", self.prefix, "--owner", "hector"]
+        if not self.review:
+            argv.append("--no-review")
+        code, out, err = run_main(argv)
+        assert code == 0, (out, err)
+
+    def advance(self, **delta):
+        from datetime import timedelta
+        self.now += timedelta(**delta)
+
+    def cli(self, *argv, as_: str | None = None, stdin: str = "", env: dict | None = None):
+        full = ["--db", self.db, *argv]
+        if as_:
+            full += ["--as", as_]
+        return run_main(full, stdin=stdin, env=env)
+
+    def ok(self, *argv, as_: str | None = None, stdin: str = "") -> str:
+        code, out, err = self.cli(*argv, as_=as_, stdin=stdin)
+        if code != 0:
+            raise AssertionError(f"earmark {' '.join(argv)} -> {code}\n{out}{err}")
+        return out
+
+    def fails(self, code: int, *argv, as_: str | None = None, stdin: str = "") -> str:
+        got, out, err = self.cli(*argv, as_=as_, stdin=stdin)
+        if got != code:
+            raise AssertionError(f"earmark {' '.join(argv)} -> {got}, wanted {code}\n{out}{err}")
+        return err or out
+
+    def json(self, *argv, as_: str | None = None, stdin: str = "") -> dict:
+        import json
+        _, out, _ = self.cli(*argv, "--json", as_=as_, stdin=stdin)
+        return json.loads(out)
