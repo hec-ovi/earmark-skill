@@ -47,6 +47,9 @@ def _worker(path: str, handle: str, start, results) -> None:
     except Exception:  # reported to the parent, which fails the test
         out["errors"].append(traceback.format_exc())
     results.put(out)
+    # Flush the queue's feeder thread before interpreter shutdown (Windows, Python 3.10).
+    results.close()
+    results.join_thread()
 
 
 def _reviewer(path: str, handle: str, start, results) -> None:
@@ -73,6 +76,9 @@ def _reviewer(path: str, handle: str, start, results) -> None:
     except Exception:
         out["errors"].append(traceback.format_exc())
     results.put(out)
+    # Flush the queue's feeder thread before interpreter shutdown (Windows, Python 3.10).
+    results.close()
+    results.join_thread()
 
 
 INIT_RACERS = 8
@@ -89,6 +95,9 @@ def _init_racer(dirs: list, barrier, results) -> None:
         except Exception as exc:  # the parent checks every outcome
             out.append((type(exc).__name__, getattr(exc, "message", str(exc))))
     results.put(out)
+    # Flush the queue's feeder thread before interpreter shutdown (Windows, Python 3.10).
+    results.close()
+    results.join_thread()
 
 
 class InitRace(unittest.TestCase):
