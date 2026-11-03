@@ -186,6 +186,15 @@ class TopicsMixin:
                 raise InvalidRequest(f"topic {path!r} is not empty ({children} subtopics, "
                                      f"{issues} issues)", hint=f"earmark topic rm {path} --archive",
                                      details={"children": children, "issues": issues})
+            scoped = [r[0] for r in tx.conn.execute(
+                "SELECT profile FROM profile_topics WHERE topic_id = ? ORDER BY profile",
+                (row["id"],))]
+            if scoped:  # removing it would silently widen those scopes (to the whole board)
+                raise InvalidRequest(
+                    f"topic {path!r} is in the scope of profile(s): {', '.join(scoped)}",
+                    hint=f"change the scope first: earmark profile edit {scoped[0]} -t <path> "
+                         f"(or --whole-board), or keep it: earmark topic rm {path} --archive",
+                    details={"profiles": scoped})
             tx.conn.execute("DELETE FROM topics WHERE id = ?", (row["id"],))
             self._event(tx, None, "topic_remove", path, None)
             return {"deleted": row["id"], "path": path}

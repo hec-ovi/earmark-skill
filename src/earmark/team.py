@@ -108,10 +108,21 @@ class TeamMixin:
         return changed
 
     def remove_profile(self, slug: str) -> dict:
+        """Refused while agents (online or offline) use it: they would lose role and scope."""
         slug = model.parse_slug(slug)
         with self._tx() as tx:
             self._require_privileged(tx, "manage profiles")
             self._profile(tx.conn, slug)
+            users = [r[0] for r in tx.conn.execute(
+                "SELECT handle FROM agents WHERE profile = ? ORDER BY handle", (slug,))]
+            if users:
+                others = [r[0] for r in tx.conn.execute(
+                    "SELECT slug FROM profiles WHERE slug <> ? ORDER BY slug", (slug,))]
+                target = "worker" if "worker" in others else (others[0] if others else "<profile>")
+                raise InvalidRequest(
+                    f"profile {slug!r} is used by {len(users)} agent(s): {', '.join(users)}",
+                    hint=f"move them to another profile first: earmark join {target} "
+                         f"--as {users[0]}", details={"agents": users})
             tx.conn.execute("DELETE FROM profiles WHERE slug = ?", (slug,))
             self._event(tx, None, "profile_remove", slug, None)
         return {"deleted": slug}
@@ -132,22 +143,60 @@ class TeamMixin:
             now = timeutil.now()
             ts = timeutil.iso(now)
             me = wanted or self._free_handle(conn, slug)
-            existing = conn.execute("SELECT handle FROM agents WHERE handle = ?", (me,)).fetchone()
+            existing = conn.execute("SELECT handle, profile, cli, online FROM agents "
+                                    "WHERE handle = ?", (me,)).fetchone()
+            action = "join"
             if existing:
+                self._check_rejoin(existing, slug, cli)
+                action = "join" if existing["online"] else "rejoin"
                 conn.execute("UPDATE agents SET profile = ?, cli = coalesce(?, cli), online = 1, "
                              "last_seen = ? WHERE handle = ?", (slug, cli, ts, me))
             else:
                 conn.execute("INSERT INTO agents(handle, kind, profile, cli, online, joined_at, "
                              "last_seen) VALUES (?, 'agent', ?, ?, 1, ?, ?)", (me, slug, cli, ts, ts))
             tx = Tx(conn, me, now, ts, None, me == self.owner, self.lease_minutes, self.require_review)
-            self._event(tx, None, "join", None, slug)
+            used_cli = cli or (existing["cli"] if existing else None)
+            self._event(tx, None, action, None, f"{slug} cli={used_cli}" if used_cli else slug)
+            self._start_check_cursor(conn, me, ts)
         self.set_actor(me)
         return self._briefing(me)
 
     @staticmethod
+    def _check_rejoin(existing, slug: str, cli: str | None) -> None:
+        """`join --as H` for an existing H from another CLI is someone else's identity: refused,
+        unless H has left and the same profile is given (a deliberate resume, logged `rejoin`)."""
+        theirs = existing["cli"]
+        if not cli or not theirs or cli == theirs:
+            return
+        if not existing["online"] and existing["profile"] == slug:
+            return
+        handle = existing["handle"]
+        state = "online" if existing["online"] else f"offline, profile {existing['profile']}"
+        hint = f"earmark join {slug} --cli {cli}  (picks a free handle)"
+        if not existing["online"] and existing["profile"]:
+            hint += (f"; to resume {handle} on purpose: earmark join {existing['profile']} "
+                     f"--as {handle} --cli {cli}")
+        raise Conflict(f"handle {handle!r} belongs to an agent on {theirs} ({state}); "
+                       f"you are on {cli}", hint=hint,
+                       details={"handle": handle, "cli": theirs, "online": bool(existing["online"]),
+                                "profile": existing["profile"]})
+
+    @staticmethod
+    def _start_check_cursor(conn, handle: str, ts: str) -> None:
+        """The `check` feed starts at the current heads (created when missing)."""
+        conn.execute(
+            "INSERT INTO cursors(agent, scope, last_comment_id, last_event_id, updated_at) "
+            "SELECT ?, 'check', (SELECT coalesce(max(id), 0) FROM comments), "
+            "(SELECT coalesce(max(id), 0) FROM events), ? WHERE 1 "
+            "ON CONFLICT(agent, scope) DO UPDATE SET last_comment_id = excluded.last_comment_id, "
+            "last_event_id = excluded.last_event_id, updated_at = excluded.updated_at",
+            (handle, ts))
+
+    @staticmethod
     def _free_handle(conn, slug: str) -> str:
-        """Smallest n with <profile>-<n> unused or offline."""
-        taken = {r[0] for r in conn.execute("SELECT handle FROM agents WHERE online = 1")}
+        """Smallest n with <profile>-<n> not used by any agent, online or offline: a handle is an
+        identity (claims, cursors, mentions) and is never handed to a new agent."""
+        taken = {r[0] for r in conn.execute("SELECT handle FROM agents")}
 
         def candidate(n: int) -> str:
             return f"{slug[:32 - len(str(n)) - 1]}-{n}"

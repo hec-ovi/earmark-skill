@@ -142,9 +142,16 @@ class Remove(BoardCase):
             b.remove_topic("a/b")
         self.assertEqual(b.remove_topic("a", archive=True)["archived"], b.topics(include_archived=True)[0]["id"])
         self.assertEqual(paths(b.topics()), ["solo"])
+        with self.assertRaises(InvalidRequest) as scoped:  # r02: would widen the scope
+            b.remove_topic("solo")
+        self.assertEqual(scoped.exception.details, {"profiles": ["solo-team"]})
+        self.assertIn("earmark profile edit solo-team", scoped.exception.hint)
+        self.assertEqual(b.get_profile("solo-team")["topics"], ["solo"])
+        self.assertTrue(b.remove_topic("solo", archive=True)["archived"])
+        self.assertEqual(b.get_profile("solo-team")["topics"], ["solo"])
+        b.edit_profile("solo-team", topics=[])
         removed = b.remove_topic("solo")
         self.assertEqual(removed["path"], "solo")
-        self.assertEqual(b.get_profile("solo-team")["topics"], [])
         with self.assertRaises(NotFound):
             b.remove_topic("solo")
 

@@ -53,17 +53,25 @@ class Profiles(BoardCase):
             b.edit_profile("ui-lead", kind="renamed")
         with self.assertRaises(Forbidden):
             worker.edit_profile("ui-lead", name="mine")
-        self.agent("ui-1", "ui-lead")
+        ui1 = self.agent("ui-1", "ui-lead")
         self.assertEqual(b.get_profile("ui-lead")["agents"], ["ui-1"])
+        ui1.leave()
+        with self.assertRaises(InvalidRequest) as used:  # offline agents still use it
+            b.remove_profile("ui-lead")
+        self.assertEqual(used.exception.details, {"agents": ["ui-1"]})
+        self.assertIn("ui-1", used.exception.message)
+        self.assertIn("earmark join worker --as ui-1", used.exception.hint)
+        self.assertEqual(b.get_profile("ui-lead")["agents"], ["ui-1"])
+        ui1.join("worker")
         self.assertEqual(b.remove_profile("ui-lead"), {"deleted": "ui-lead"})
-        self.assertIsNone(b.whoami() and self.open_as("ui-1").whoami()["profile"])
+        self.assertEqual(self.open_as("ui-1").whoami()["profile"]["slug"], "worker")
         actions = [e["action"] for e in b.activity()["items"]]
         for action in ("profile_add", "profile_edit", "profile_remove"):
             self.assertIn(action, actions)
 
 
 class JoinLeave(BoardCase):
-    def test_default_handles_reuse_offline_ones(self):
+    def test_default_handles_never_reuse_an_existing_one(self):
         first = self.open_as(None)
         self.assertEqual(first.join("worker")["agent"]["handle"], "worker-1")
         self.assertEqual(first.actor, "worker-1")
@@ -71,8 +79,47 @@ class JoinLeave(BoardCase):
         self.assertEqual(second.join("worker")["agent"]["handle"], "worker-2")
         first.leave()
         third = self.open_as(None)
-        self.assertEqual(third.join("worker")["agent"]["handle"], "worker-1")
+        self.assertEqual(third.join("worker")["agent"]["handle"], "worker-3")
         self.assertEqual(self.open_as(None).join("reviewer")["agent"]["handle"], "reviewer-1")
+
+    def test_new_agent_never_inherits_the_work_of_one_that_left(self):  # r04
+        self.issue("a")
+        first = self.open_as(None)
+        self.assertEqual(first.join("worker", cli="claude-code")["agent"]["handle"], "worker-1")
+        first.next()
+        first.leave(keep=True)
+        second = self.open_as(None).join("worker", cli="codex")["agent"]
+        self.assertEqual((second["handle"], second["cli"], second["working"]),
+                         ("worker-2", "codex", []))
+
+    def test_cross_cli_join_as_an_existing_handle(self):
+        b = self.board
+        codex = self.agent("worker-2", cli="codex")
+        key = self.issue("handoff")["key"]
+        codex.claim(key)
+        codex.submit_review(key, note="ready")
+        grok = self.open_as(None)
+        with self.assertRaises(Conflict) as online:  # someone else's live identity
+            grok.join("worker", handle="worker-2", cli="grok")
+        self.assertEqual(online.exception.details,
+                         {"handle": "worker-2", "cli": "codex", "online": True, "profile": "worker"})
+        self.assertIn("earmark join worker --cli grok", online.exception.hint)
+        self.assertEqual(grok.actor, None)
+        codex.leave(keep=True)
+        with self.assertRaises(Conflict) as other_profile:
+            grok.join("reviewer", handle="worker-2", cli="grok")
+        self.assertIn("earmark join worker --as worker-2 --cli grok", other_profile.exception.hint)
+        agent = b.team()["agents"]
+        self.assertEqual([(a["handle"], a["cli"], a["online"]) for a in agent if a["handle"] == "worker-2"],
+                         [("worker-2", "codex", False)])
+        resumed = grok.join("worker", handle="worker-2", cli="grok")  # deliberate resume
+        self.assertEqual((resumed["agent"]["cli"], resumed["agent"]["online"]), ("grok", True))
+        log = [(e["action"], e["new"]) for e in b.activity()["items"] if e["action"] in ("join", "rejoin")]
+        self.assertEqual(log[0], ("rejoin", "worker cli=grok"))
+        self.assertIn(("join", "worker cli=codex"), log)
+        same = self.agent("a1", cli="codex")
+        self.assertEqual(same.join("worker", cli="codex")["agent"]["handle"], "a1")
+        self.assertEqual(same.join("worker")["agent"]["cli"], "codex")  # no cli given: kept
 
     def test_briefing(self):
         b = self.board
