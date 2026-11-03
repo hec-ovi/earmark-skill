@@ -73,19 +73,23 @@ def cli_env() -> dict:
     return {k: v for k, v in os.environ.items() if not k.startswith("EARMARK_")}
 
 
-# Runs the launcher in process and, at exit, hands /proc/self/io to the harness through an
-# inherited pipe: write_bytes, cancelled_write_bytes (dirty pages dropped by unlink or truncate
-# before writeback, such as a deleted -shm), wchar and syscw. The CLI closes the board before
-# returning, so the snapshot sees the close-time checkpoint; wait4() still gives the total.
+# Runs the launcher in the same interpreter and, at exit, hands /proc/self/io to the harness
+# through an inherited pipe: write_bytes, cancelled_write_bytes (dirty pages dropped by unlink
+# or truncate before writeback, such as a deleted -shm), wchar and syscw. The CLI closes the
+# board before returning, so the snapshot sees the close-time checkpoint; wait4() still gives
+# the total, and `late` in each record is the difference. Adds about 2 ms per call
+# (`--reads` measures it as `ls (no wrapper)`).
 WRAPPER = (
-    "import atexit, os, runpy, sys\n"
+    "import atexit, os, sys\n"
     "fd = int(os.environ.pop('SOAK_IO_FD'))\n"
     "def _io():\n"
     "    with open('/proc/self/io', 'rb') as fh:\n"
     "        os.write(fd, fh.read())\n"
     "atexit.register(_io)\n"
     "sys.argv = sys.argv[1:]\n"
-    "runpy.run_path(sys.argv[0], run_name='__main__')\n"
+    "with open(sys.argv[0], 'rb') as fh:\n"
+    "    code = compile(fh.read(), sys.argv[0], 'exec')\n"
+    "exec(code, {'__name__': '__main__', '__file__': sys.argv[0], '__builtins__': __builtins__})\n"
 )
 WRAP = LINUX and os.path.exists("/proc/self/io")
 
@@ -1044,17 +1048,20 @@ def _reads(args, workdir: str) -> dict:
         "show": lambda i: ["show", with_comments[(i * 7) % len(with_comments)]],
         "comments --new": lambda i: ["comments", with_comments[i], "--new"],
         "inbox": lambda i: ["inbox"],
+        "ls (no wrapper)": lambda i: ["ls"],
     }
     env = cli_env()
     base = [args.python, args.cli, "--db", path, "--as", "reader"]
     measured: dict[str, list] = defaultdict(list)
     returned: dict[str, list] = defaultdict(list)
     floor = []
+    monitor = Monitor(path)  # load average while the reads run
+    monitor.start()
     for i in range(samples):  # interleaved so host load shifts hit every command alike
         r = run([args.python, "-c", "pass"], env, cwd=workdir)
         floor.append((r["t1"] - r["t0"]) * 1000)
         for name, plan in plans.items():
-            r = run(base + plan(i), env, cwd=workdir, wrap=args.wrap)
+            r = run(base + plan(i), env, cwd=workdir, wrap=args.wrap and "no wrapper" not in name)
             if r["code"] != 0:
                 sys.exit(f"soak: {name} exited {r['code']}: {r['err']}")
             measured[name].append(r)
@@ -1065,6 +1072,8 @@ def _reads(args, workdir: str) -> dict:
             elif name.startswith("ls"):
                 returned[name].append(sum(1 for line in r["out"].splitlines()
                                           if line.startswith(prefix)))
+
+    monitor.stop()
 
     # The same queries in process (no interpreter start), read-only calls only.
     def timed(fn) -> list[float]:
@@ -1084,6 +1093,7 @@ def _reads(args, workdir: str) -> dict:
         "comments --new": timed(lambda: reader.list_comments(show_key, since=0)),
         "inbox": timed(lambda: reader.inbox(peek=True)),
     }
+    inproc["ls (no wrapper)"] = inproc["ls"]
     reader.close()
     table = {}
     for name, rows in measured.items():
@@ -1108,6 +1118,8 @@ def _reads(args, workdir: str) -> dict:
         "python_start_p50_ms": pct(floor, 50),
         "python_start_p95_ms": pct(floor, 95),
         "ops": table,
+        "load_1m_min": min(monitor.loads) if monitor.loads else None,
+        "load_1m_max": max(monitor.loads) if monitor.loads else None,
         "load_end": loadavg(),
     }
 
@@ -1223,7 +1235,8 @@ def print_reads(res: dict, out) -> None:
         print(f"{name:<22}{ms(row['p50_ms']):>9}{ms(row['p95_ms']):>9}{ms(row['max_ms']):>9}"
               f"{ms(row['inproc_p50_ms']):>13}{size(row['written_per_call']):>14}"
               f"{size(row['net_per_call']):>11}{rows:>7}", file=out)
-    print(f"load average at end: {res['load_end']}", file=out)
+    print(f"load average (1 min) during the reads: {res['load_1m_min']}-{res['load_1m_max']}",
+          file=out)
 
 
 # ---- main -------------------------------------------------------------------------------------------
@@ -1275,6 +1288,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.agents < 1 or args.reviewers < 1:
         p.error("--agents and --reviewers need at least 1 each")
 
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # clean up the board directory
     result = reads(args) if args.reads else soak(args)
     out = sys.stderr if args.json else sys.stdout
     (print_reads if args.reads else print_soak)(result, out)
