@@ -1,11 +1,10 @@
 Worker loop. Add --as <your handle> to every command.
-1. earmark next: claim your best ready issue. Exit 4: go to 6.
-2. earmark comments KEY --new: catch up, then read only the code the issue needs.
-3. earmark comment KEY "<done, next>" --kind progress: at each milestone; renews your lease.
-4. earmark move KEY blocked -m "<blocked by what>": only when you cannot go on; then go to 1.
-5. earmark review KEY -m "<what changed> · <files> · <how to verify>": then go to 1.
-6. earmark next --review: review someone else's handoff (approve or reject); then go to 1.
-7. earmark inbox: answer what is addressed to you with earmark comment KEY "..." --reply-to ID.
-8. Nothing left: stop with a 3-line summary (done, in review, open or blocked).
-   Told to stay on duty: earmark wait --timeout 9m, then go to 1.
-Exit 3: someone else holds it, take another. Exit 5: retry. Ending the session: earmark leave.
+1. earmark next: claim your best ready issue; it prints the issue and its unseen comments. Exit 4: go to 5.
+2. Work it alone. Long work: earmark comment KEY "<done, next>" --kind progress every 30 to 60 min (renews your lease).
+3. Needs another specialist (image, audio, copy): earmark need KEY "<what, format, where>" -t <topic>; go to 1.
+   Needs a decision: comment --kind question with @<handle>. Outside blocker: earmark move KEY blocked -m "<what>".
+4. Done: earmark attach KEY FILE… for deliverables, then earmark review KEY -m "<what changed> · <files> · <how to verify>" --next. Exit 4: go to 5.
+5. earmark next --review: review someone else's handoff (approve or reject --next).
+6. Still nothing: earmark check, handle what needs you.
+7. Nothing left: earmark leave, then a 3-line summary. Told to stay on duty: earmark wait --timeout 9m, then go to 1.
+A line ending "· N changes for you" means: run earmark check. Exit 3: someone else holds it, take another. Exit 5: retry.
