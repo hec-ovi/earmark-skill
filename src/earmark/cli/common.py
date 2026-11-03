@@ -62,7 +62,11 @@ def empty_text(command: str, e: EarmarkError, ctx: Context | None) -> str:
             review = d.get("mode") == "review"
         else:
             review = bool(ctx and getattr(ctx.ns, "review", False))
-        head = "next: nothing to review in your scope" if review else "next: nothing ready in your scope"
-        return R.SEP.join([head, f"review queue: {d.get('review_queue', 0)}",
-                           f"inbox: {d.get('inbox', 0)} new", f"stale: {d.get('stale', 0)}"])
+        changes = f"changes for you: {d.get('changes', 0)}"  # the check feed, as the hint counts
+        if review:
+            return R.SEP.join(["next: nothing to review for you (your own handoffs excluded)",
+                               changes])
+        return R.SEP.join(["next: nothing ready for you",
+                           f"reviews for you: {d.get('review_queue', 0)}", changes,
+                           f"stale: {d.get('stale', 0)}"])
     return e.message
