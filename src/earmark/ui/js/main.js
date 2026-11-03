@@ -10,6 +10,7 @@ import { IssuePanel, IssuePage } from './detail.js';
 import { TeamPage } from './team.js';
 import { NewIssueDialog, openNewIssue } from './newissue.js';
 import { TopicDialog } from './topics.js';
+import { Lightbox } from './attachments.js';
 import { cx, isTypingTarget } from './util.js';
 
 const SHORTCUTS = [
@@ -76,13 +77,14 @@ function App() {
     </div>
     ${panel ? html`<${IssuePanel} />` : null}
     <${DialogHost} />
+    <${Lightbox} />
     <${PopoverHost} />
     <${Toasts} />
   </div>`;
 }
 
 function handleKey(e) {
-  if (e.defaultPrevented) return;
+  if (e.defaultPrevented || state.lightbox) return;
   if (e.key === 'Escape') {
     if (state.popover) { closePopover(); return; }
     if (state.dialog) { set({ dialog: null }); return; }

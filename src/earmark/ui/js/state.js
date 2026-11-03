@@ -157,6 +157,8 @@ export const state = {
   flash: new Set(),
   live: 'connecting',
   toasts: [],
+  uploads: [],
+  lightbox: null,
   dialog: null,
   popover: null,
   selected: null,

@@ -43,6 +43,8 @@ LUCIDE = [
     "at-sign", "refresh-cw", "loader-circle", "info", "circle-alert", "move", "sun", "moon",
     "monitor", "grip-vertical", "external-link", "git-fork", "flag", "user-plus", "user-x",
     "eye-off", "text-quote", "check-check", "lock", "circle-dot", "workflow",
+    # attachments
+    "paperclip", "download", "upload", "file", "file-image", "file-audio", "file-video", "file-code",
     # topic and profile icon palette
     "gamepad-2", "palette", "music", "audio-lines", "volume-2", "image", "brush", "code",
     "server", "database", "globe", "smartphone", "box", "cpu", "file-text", "type",

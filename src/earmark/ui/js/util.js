@@ -151,6 +151,15 @@ export async function copyText(text) {
   }
 }
 
+export function formatBytes(n) {
+  if (!Number.isFinite(n)) return '';
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let v = n / 1024, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
 export function plural(n, one, many = one + 's') {
   return `${n} ${n === 1 ? one : many}`;
 }

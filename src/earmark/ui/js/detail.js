@@ -17,6 +17,7 @@ import { renderMarkdown } from './markdown.js';
 import { STATUS, PRIORITY, TYPE, TYPE_KEYS, LINKS, ROLE } from './meta.js';
 import { cx, copyText, dueInfo, todayISO, absTime, untilText, ago, LABEL_RE, plural } from './util.js';
 import { openNewIssue } from './newissue.js';
+import { AttachmentsSection, useFileDrop, DropOverlay, uploadFiles } from './attachments.js';
 
 function IssueHead({ d, full }) {
   const issue = d.issue;
@@ -55,9 +56,11 @@ function useFocusOnOpen(d) {
 export function IssuePanel() {
   const d = state.detail;
   const ref = useFocusOnOpen(d);
+  const [dropping, drop] = useFileDrop((files) => d && d.issue && uploadFiles(d.key, files));
   if (!d) return null;
   const issue = d.issue;
-  return html`<aside class="panel" ref=${ref} tabindex="-1" aria-label=${'Issue ' + d.key}>
+  return html`<aside class=${cx('panel', dropping && 'is-dropping')} ref=${ref} tabindex="-1" aria-label=${'Issue ' + d.key} ...${issue ? drop : {}}>
+    ${dropping ? html`<${DropOverlay} issueKey=${d.key} />` : null}
     <${IssueHead} d=${d} />
     <div class="panel-scroll">
       <${IssueState} d=${d} />
@@ -66,6 +69,7 @@ export function IssuePanel() {
         <${HolderBanner} issue=${issue} />
         <${Properties} issue=${issue} />
         <${Description} issue=${issue} />
+        <${AttachmentsSection} issue=${issue} />
         <${SubIssues} issue=${issue} />
         <${Links} issue=${issue} />
         <${Conversation} issue=${issue} d=${d} />
@@ -78,9 +82,11 @@ export function IssuePanel() {
 export function IssuePage() {
   const d = state.detail;
   const ref = useFocusOnOpen(d);
+  const [dropping, drop] = useFileDrop((files) => d && d.issue && uploadFiles(d.key, files));
   if (!d) return null;
   const issue = d.issue;
-  return html`<div class="issue-page" ref=${ref} tabindex="-1" aria-label=${'Issue ' + d.key}>
+  return html`<div class=${cx('issue-page', dropping && 'is-dropping')} ref=${ref} tabindex="-1" aria-label=${'Issue ' + d.key} ...${issue ? drop : {}}>
+    ${dropping ? html`<${DropOverlay} issueKey=${d.key} />` : null}
     <${IssueHead} d=${d} full />
     <${IssueState} d=${d} />
     ${issue ? html`<div class="issue-page-grid" key=${issue.key}>
@@ -89,6 +95,7 @@ export function IssuePage() {
         <${HolderBanner} issue=${issue} />
         <div class="page-props-inline"><${Properties} issue=${issue} column /></div>
         <${Description} issue=${issue} />
+        <${AttachmentsSection} issue=${issue} />
         <${SubIssues} issue=${issue} />
         <${Links} issue=${issue} />
         <${Conversation} issue=${issue} d=${d} />

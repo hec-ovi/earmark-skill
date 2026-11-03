@@ -55,3 +55,28 @@ export function qs(params) {
 }
 
 export const enc = encodeURIComponent;
+
+/**
+ * Upload one file as raw bytes (POST /api/issues/{key}/attachments). XHR for upload progress.
+ * Resolves to the Attachment; rejects with ApiError (status 413 when over the size limit).
+ */
+export function uploadFile(key, file, { comment, onProgress } = {}) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const q = qs({ name: file.name || 'pasted-file', comment: comment || undefined });
+    xhr.open('POST', `/api/issues/${enc(key)}/attachments${q}`);
+    xhr.setRequestHeader('X-Earmark', '1');
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.responseType = 'json';
+    if (onProgress) xhr.upload.addEventListener('progress', (e) => { if (e.lengthComputable) onProgress(e.loaded, e.total); });
+    xhr.addEventListener('load', () => {
+      const env = xhr.response;
+      if (env && env.ok === true) resolve(env.data);
+      else reject(new ApiError(xhr.status, (env && env.error) || { message: `Upload failed (HTTP ${xhr.status})` }));
+    });
+    xhr.addEventListener('error', () => reject(new ApiError(xhr.status || 0, {
+      code: 'network', message: xhr.status === 413 ? 'File is too large' : 'Upload failed: the server closed the connection',
+    })));
+    xhr.send(file);
+  });
+}
