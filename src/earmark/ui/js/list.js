@@ -140,7 +140,7 @@ function Row({ it }) {
         ${extra > 0 ? html`<span class="chip chip-more" title=${it.labels.slice(2).join(', ')}>+${extra}</span>` : null}
         <${TopicChip} path=${it.topic} />
       </span>
-      <${DueChip} due=${it.due} status=${it.status} />
+      <span class="row-due"><${DueChip} due=${it.due} status=${it.status} /></span>
       ${it.comment_count ? html`<span class="meta-ico comments" title=${plural(it.comment_count, 'comment')}><${Icon} name="message-square" size=${13} />${it.comment_count}</span>` : html`<span class="meta-ico comments is-zero"></span>`}
     </span>
     <span class="row-av"><${Avatar} handle=${it.assignee} size=${22} /></span>

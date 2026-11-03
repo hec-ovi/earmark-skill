@@ -246,8 +246,9 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
   display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr);
   height: 100vh; height: 100dvh; overflow: hidden;
 }
-.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; container: main / inline-size; }
 .content { flex: 1 1 auto; min-height: 0; overflow: auto; container-type: inline-size; overscroll-behavior: contain; }
+.content, .side-scroll, .panel-scroll, .col-body, .menu-list, .dialog-body { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
 .content.is-board { overflow: auto; }
 
 /* sidebar */
@@ -420,6 +421,8 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 .row-meta { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .row-chips { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .row-meta .comments { min-width: 28px; justify-content: flex-end; }
+.row-due { display: inline-flex; justify-content: flex-end; min-width: 76px; }
+.row .label-chip, .card .label-chip { border-color: transparent; background: transparent; padding: 0 2px; color: var(--text-3); }
 .row-av { display: flex; justify-content: center; }
 .row-age { font-size: 12px; color: var(--text-4); text-align: right; white-space: nowrap; }
 .list-more { padding: 14px var(--gutter); color: var(--text-3); font-size: 12.5px; }
@@ -429,13 +432,26 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
   .row-chips .label-chip, .row-chips .chip-more { display: none; }
 }
 @container (max-width: 760px) {
-  .row-chips, .group-hint { display: none; }
+  .row-chips, .group-hint, .row-meta .comments { display: none; }
+  .row-due { min-width: 0; }
+  .row { grid-template-columns: 24px 4.6em 22px minmax(0, 1fr) auto 24px; }
+  .row-age { display: none; }
 }
-@container (max-width: 600px) {
+@container (max-width: 520px) {
   .row { grid-template-columns: 22px 22px minmax(0, 1fr) auto 24px; column-gap: 8px; }
-  .row-key, .row-age { display: none; }
-  .row-meta .due span, .flag span { display: none; }
+  .row-key { display: none; }
+  .flag span, .meta-ico[title*="sub-issue"] { display: none; }
   .flag { padding: 0 3px; }
+}
+@container main (max-width: 860px) {
+  .toolbar { gap: 8px; }
+  .filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+  .filters::-webkit-scrollbar { display: none; }
+  .tool-txt, .seg-txt { display: none; }
+  .search { width: 180px; }
+}
+@container main (max-width: 640px) {
+  .search { width: 140px; }
 }
 
 .is-flash { animation: flash 1.8s ease-out; }
@@ -867,7 +883,7 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 
 /* ------------------------------------------------------------------ responsive */
 
-@media (min-width: 1280px) {
+@media (min-width: 1360px) {
   .shell.has-panel .main { margin-right: var(--panel-w); }
   .shell.has-panel .panel { box-shadow: none; animation: none; }
 }
