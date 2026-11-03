@@ -984,6 +984,12 @@ def check_change(c: dict) -> str:
     by = c.get("by")
     if kind == "assigned":
         return f"new for you (assigned by {by})" if by else "new for you"
+    if kind == "created":
+        return f"new issue ({by})" if by else "new issue"
+    if kind == "handoff":
+        return f"handoff ({by})" if by else "handoff"
+    if kind == "stale":
+        return f"stale claim ({by})" if by else "stale claim"
     if kind == "status":
         return f"status {_arrow(c)}"
     if kind in ("rejected", "approved"):
@@ -996,6 +1002,8 @@ def check_change(c: dict) -> str:
         return f"taken over ({by})" if by else "taken over"
     if kind in ("field", "edit"):
         field = c.get("field") or "field"
+        if field == "assignee" and "new" in c:
+            return f"assigned to {c['new']}" if c["new"] else "unassigned"
         return f"{field} {_arrow(c)}" if field in ("priority", "status") else f"{field} changed"
     return str(kind or "changed").replace("_", " ")
 
@@ -1003,10 +1011,13 @@ def check_change(c: dict) -> str:
 def check_parts(item: dict) -> list[str]:
     parts: list[str] = []
     changes = item.get("changes") or []
-    # what makes it yours leads the line
-    for c in sorted(changes, key=lambda c: c.get("kind") != "assigned"):
+    # what makes it yours (or new) leads the line, with how urgent it is
+    leads = ("assigned", "created")
+    rated = False
+    for c in sorted(changes, key=lambda c: leads.index(c["kind"]) if c.get("kind") in leads else 2):
         parts.append(check_change(c))
-        if c.get("kind") == "assigned":
+        if c.get("kind") in leads and not rated:
+            rated = True
             if item.get("priority"):
                 parts.append(str(item["priority"]))
             if item.get("blocks_open"):

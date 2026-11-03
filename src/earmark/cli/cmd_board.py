@@ -78,7 +78,15 @@ def cmd_wait(ctx: Context, a) -> Result:
     b = ctx.board()
     deadline = time.monotonic() + timeout
     version = b.data_version()
+
+    def wake_at() -> float | None:
+        """When a lease lapses (nothing is written then): check again at that moment."""
+        ask = getattr(b, "wait_wake_in", None)
+        seconds = ask(mode) if callable(ask) else None
+        return time.monotonic() + seconds if isinstance(seconds, (int, float)) else None
+
     hit = b.wait_check(mode)
+    wake = None if hit else wake_at()
     while not hit:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -86,9 +94,10 @@ def cmd_wait(ctx: Context, a) -> Result:
                         details={"mode": mode, "timeout_seconds": timeout})
         time.sleep(min(interval, remaining))
         current = b.data_version()
-        if current != version:
+        if current != version or (wake is not None and time.monotonic() >= wake):
             version = current
             hit = b.wait_check(mode)
+            wake = None if hit else wake_at()
     return Result(hit, lambda: R.render_wait(hit))
 
 
