@@ -67,7 +67,8 @@ class RealRouteTests(RealServerCase):
         data = self.ok("GET", "/api/board")
         self.assertEqual(data["prefix"], "GAME")
         self.assertEqual(data["owner"], "owner")
-        self.assertEqual(data["settings"], {"require_review": True, "lease_minutes": 120})
+        self.assertEqual(data["settings"], {"require_review": True, "lease_minutes": 120,
+                                            "max_attachment_mb": 50})
         self.assertEqual(set(data["counts"]), {"by_status", "open", "total"})
         self.assertEqual(set(data["enums"]) >= {"statuses", "priorities", "types", "comment_kinds",
                                                  "roles", "link_kinds"}, True)

@@ -19,7 +19,8 @@ class Info(BoardCase):
         info = self.board.info()
         for key in ("prefix", "owner", "settings", "counts", "enums", "version"):
             self.assertIn(key, info)
-        self.assertEqual(info["settings"], {"require_review": True, "lease_minutes": 120})
+        self.assertEqual(info["settings"], {"require_review": True, "lease_minutes": 120,
+                                            "max_attachment_mb": 50})
         self.assertEqual((info["counts"]["open"], info["counts"]["total"]), (1, 2))
         self.assertEqual(info["counts"]["by_status"]["canceled"], 1)
         self.assertEqual(info["enums"]["priorities"], ["urgent", "high", "medium", "low", "none"])
@@ -33,16 +34,20 @@ class Info(BoardCase):
 class Config(BoardCase):
     def test_get_and_set(self):
         b = self.board
-        self.assertEqual(b.config(), {"require_review": True, "lease_minutes": 120, "prefix": "GAME"})
+        self.assertEqual(b.config(), {"require_review": True, "lease_minutes": 120,
+                                      "max_attachment_mb": 50, "prefix": "GAME"})
         self.assertEqual(b.config("lease-minutes"), {"lease_minutes": 120})
         self.assertEqual(b.config("lease_minutes", "45"), {"lease_minutes": 45})
         self.assertEqual(b.config("lease_minutes", "2h"), {"lease_minutes": 120})
         self.assertEqual(b.config("require_review", "no"), {"require_review": False})
+        self.assertEqual(b.config("max_attachment_mb", "200"), {"max_attachment_mb": 200})
+        self.assertEqual(b.config("max-attachment-mb", "8MB"), {"max_attachment_mb": 8})
         self.assertEqual(b.config("prefix", "quest"), {"prefix": "QUEST"})
         self.assertEqual(self.issue("x")["key"], "QUEST-1")
         self.assertEqual(self.open_as(None).get_issue("quest-1")["key"], "QUEST-1")
         for key, value in (("lease_minutes", "0"), ("require_review", "maybe"), ("prefix", "9"),
-                           ("colour", "red")):
+                           ("max_attachment_mb", "0"), ("max_attachment_mb", "1.5"),
+                           ("max_attachment_mb", "99999"), ("colour", "red")):
             with self.assertRaises(InvalidRequest, msg=key):
                 b.config(key, value)
         with self.assertRaises(Forbidden):
@@ -86,22 +91,27 @@ class ExportBackup(BoardCase):
         self.assertEqual(len(dump["events"]), len(b.activity(limit=1000)["items"]))
         self.assertTrue({"topics", "profiles", "agents", "cursors"} <= set(dump))
 
-    def test_backup_is_a_consistent_single_file(self):
+    def test_backup_writes_a_directory(self):
         self.issue("kept")
-        target = os.path.join(self.tmp, "copy.db")
+        target = os.path.join(self.tmp, "copy")
         result = self.board.backup(target)
-        self.assertEqual(result["path"], target)
+        self.assertEqual(result["path"], os.path.join(target, "earmark.db"))
+        self.assertEqual((result["dir"], result["files"], result["missing"]), (target, 0, []))
         self.assertGreater(result["bytes"], 0)
-        copy = sqlite3.connect(target)
+        self.assertTrue(os.path.isdir(os.path.join(target, "files")))
+        copy = sqlite3.connect(result["path"])
         self.addCleanup(copy.close)
         self.assertEqual(copy.execute("SELECT title FROM issues").fetchone()[0], "kept")
         self.assertEqual(copy.execute("PRAGMA journal_mode").fetchone()[0], "delete")
-        with self.assertRaises(InvalidRequest):
+        with self.assertRaises(InvalidRequest):  # DIR/earmark.db exists
             self.board.backup(target)
-        in_dir = self.board.backup(self.tmp)
-        self.assertTrue(os.path.basename(in_dir["path"]).startswith("earmark-"))
+        empty = os.path.join(self.tmp, "empty")
+        os.mkdir(empty)
+        self.assertEqual(self.board.backup(empty)["path"], os.path.join(empty, "earmark.db"))
+        with self.assertRaises(InvalidRequest):  # a file, not a directory
+            self.board.backup(result["path"])
         with self.assertRaises(InvalidRequest):
-            self.board.backup(os.path.join(self.tmp, "missing", "x.db"))
+            self.board.backup(os.path.join(self.tmp, "missing", "copy"))
 
 
 class ChangeDetection(BoardCase):

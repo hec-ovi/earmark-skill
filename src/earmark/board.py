@@ -17,6 +17,7 @@ The methods live in focused modules and are composed here:
 | issues.py | list_issues, get_issue, issue_events, activity, create_issue, update_issue, assign, rank, link, unlink, delete_issue |
 | workflow.py | move, claim, release, next, submit_review, approve, reject, done, reopen, cancel |
 | comments.py | add_comment, edit_comment, list_comments, inbox |
+| attachments.py | attach, list_attachments, get_attachment, save_attachment, detach |
 | topics.py | topics, add_topic, edit_topic, move_topic, remove_topic |
 | team.py | profiles, get_profile, add_profile, edit_profile, remove_profile, join, leave, whoami, team, triage, wait_check |
 | admin.py | info, config, doctor, export, backup, data_version, heads |
@@ -31,17 +32,18 @@ import os
 from earmark import db as _db
 from earmark import model, seed, timeutil
 from earmark.admin import AdminMixin
+from earmark.attachments import AttachmentsMixin
 from earmark.comments import CommentsMixin
 from earmark.errors import InvalidRequest
 from earmark.issues import IssuesMixin
-from earmark.service import BoardBase
+from earmark.service import FILES_DIR, BoardBase
 from earmark.team import TeamMixin
 from earmark.topics import TopicsMixin
 from earmark.workflow import WorkflowMixin
 
 
-class Board(IssuesMixin, WorkflowMixin, CommentsMixin, TopicsMixin, TeamMixin, AdminMixin,
-            BoardBase):
+class Board(IssuesMixin, WorkflowMixin, CommentsMixin, AttachmentsMixin, TopicsMixin, TeamMixin,
+            AdminMixin, BoardBase):
     # ---- lifecycle ---------------------------------------------------------------------
 
     @classmethod
@@ -64,7 +66,7 @@ class Board(IssuesMixin, WorkflowMixin, CommentsMixin, TopicsMixin, TeamMixin, A
             raise InvalidRequest(f"a board already exists at {path}", hint="earmark info")
         prefix = model.parse_prefix(prefix) if prefix else model.default_prefix(os.path.basename(root))
         owner = model.parse_handle(owner, "owner handle") if owner else default_owner(root)
-        os.makedirs(board_dir, exist_ok=True)
+        os.makedirs(os.path.join(board_dir, FILES_DIR), exist_ok=True)
         ignore = os.path.join(board_dir, ".gitignore")
         if not os.path.exists(ignore):
             with open(ignore, "w", encoding="utf-8") as fh:
@@ -136,7 +138,8 @@ def _seed_board(conn, *, prefix: str, owner: str, require_review: bool) -> None:
     ts = timeutil.now_iso()
     meta = {"prefix": prefix, "owner": owner, "created_at": ts,
             "require_review": "1" if require_review else "0",
-            "lease_minutes": str(model.DEFAULT_LEASE_MINUTES)}
+            "lease_minutes": str(model.DEFAULT_LEASE_MINUTES),
+            "max_attachment_mb": str(model.DEFAULT_MAX_ATTACHMENT_MB)}
     conn.executemany("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE "
                      "SET value = excluded.value", list(meta.items()))
     conn.executemany(

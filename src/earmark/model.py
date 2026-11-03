@@ -36,10 +36,15 @@ TRANSITIONS = {
     "canceled": ("todo",),
 }
 
-SETTINGS = ("require_review", "lease_minutes", "prefix")
+SETTINGS = ("require_review", "lease_minutes", "max_attachment_mb", "prefix")
 DEFAULT_LEASE_MINUTES = 120
+DEFAULT_MAX_ATTACHMENT_MB = 50
+MAX_ATTACHMENT_MB = 4096
+ATTACHMENT_KINDS = ("image", "audio", "video", "pdf", "text", "file")
+MAX_FILE_NAME = 255
 MAX_TOPIC_DEPTH = 16
 
+MIME_RE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}")
 HANDLE_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}")
 TOPIC_SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,47}")
 LABEL_RE = re.compile(r"[a-z0-9][a-z0-9._:-]{0,31}")
@@ -234,3 +239,83 @@ def mentions(body: str) -> list[str]:
         if handle not in seen:
             seen.append(handle)
     return seen
+
+
+# ---- attachments ------------------------------------------------------------------------
+
+# Types mimetypes does not know everywhere, so text files read as text on every machine.
+EXTRA_TYPES = {".log": "text/plain", ".md": "text/markdown", ".yaml": "application/yaml",
+               ".yml": "application/yaml", ".toml": "application/toml", ".ini": "text/plain",
+               ".cfg": "text/plain", ".conf": "text/plain", ".diff": "text/x-diff",
+               ".patch": "text/x-diff", ".jsonl": "application/jsonl", ".ndjson": "application/jsonl"}
+# Compressed files: mimetypes reports the encoding, the bytes on disk are the archive.
+ENCODED_TYPES = {"gzip": "application/gzip", "bzip2": "application/x-bzip2", "xz": "application/x-xz",
+                 "br": "application/x-brotli", "compress": "application/x-compress"}
+TEXT_APPLICATION_TYPES = ("application/json", "application/jsonl", "application/xml",
+                          "application/yaml", "application/x-yaml", "application/toml",
+                          "application/javascript", "application/x-sh", "application/sql")
+
+
+def parse_file_name(value: str) -> str:
+    """Base name only (directories stripped, '/' and '\\'), control characters replaced,
+    at most 255 chars (the extension kept when the stem is cut)."""
+    base = str(value or "").replace("\\", "/").rsplit("/", 1)[-1]
+    base = "".join(ch if ch.isprintable() else "_" for ch in base).strip()
+    if base in ("", ".", ".."):
+        raise InvalidRequest(f"invalid file name {value!r}; give the file a name",
+                             hint="earmark attach KEY FILE")
+    if len(base) > MAX_FILE_NAME:
+        keep = len(file_ext(base))  # the extension, in its original case
+        base = base[:MAX_FILE_NAME - keep] + (base[-keep:] if keep else "")
+    return base
+
+
+def file_ext(name: str) -> str:
+    """'.png' for 'Shot.PNG': the lowercased suffix when it is 1-10 ASCII letters or digits."""
+    dot = name.rfind(".")
+    tail = name[dot + 1:] if dot > 0 else ""
+    return "." + tail.lower() if 1 <= len(tail) <= 10 and tail.isascii() and tail.isalnum() else ""
+
+
+def file_mime(name: str, hint: str | None = None) -> str:
+    """MIME type by extension (mimetypes), else a well-formed `hint` (an upload's Content-Type),
+    else application/octet-stream."""
+    import mimetypes
+
+    dot = name.rfind(".")
+    suffix = name[dot:].lower() if dot > 0 else ""
+    mime = None
+    if suffix:
+        guessed, encoding = mimetypes.guess_type("file" + suffix, strict=False)
+        mime = ENCODED_TYPES.get(encoding) if encoding else guessed
+        mime = (mime or EXTRA_TYPES.get(suffix) or "").lower()
+        if not MIME_RE.fullmatch(mime):
+            mime = None
+    if not mime and hint:
+        wanted = str(hint).split(";", 1)[0].strip().lower()
+        if MIME_RE.fullmatch(wanted):
+            mime = wanted
+    return mime or "application/octet-stream"
+
+
+def attachment_kind(mime: str) -> str:
+    """image, audio, video, pdf, text or file."""
+    major = mime.split("/", 1)[0]
+    if major in ("image", "audio", "video"):
+        return major
+    if mime == "application/pdf":
+        return "pdf"
+    if major == "text" or mime in TEXT_APPLICATION_TYPES or mime.endswith(("+json", "+xml")):
+        return "text"
+    return "file"
+
+
+def parse_attachment_id(value: str | int) -> int:
+    """'@12', '12' (or 12) → 12."""
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    text = str(value or "").strip().lstrip("@")
+    if not text.isdigit() or int(text) < 1:
+        raise InvalidRequest(f"invalid attachment id {value!r}; use @12 or 12",
+                             hint="earmark attachments KEY")
+    return int(text)

@@ -148,13 +148,14 @@ class IssuesMixin:
         """Issue; adds new_comments for the actor, and 'comments' (last N) when comments > 0."""
         with self._read() as conn:
             issue_id = self._issue_id(conn, key)
-            data = views.issue_detail(conn, self.prefix, issue_id, timeutil.now_iso())
+            data = views.issue_detail(conn, self.prefix, issue_id, timeutil.now_iso(),
+                                      self.files_dir)
             data["new_comments"] = self._new_comment_count(conn, issue_id)
             if comments and int(comments) > 0:
                 rows = conn.execute(
                     f"SELECT {views.COMMENT_COLUMNS} FROM comments c WHERE c.issue_id = ? "
                     f"ORDER BY c.id DESC LIMIT ?", (issue_id, int(comments))).fetchall()
-                data["comments"] = views.comments(conn, self.prefix, rows[::-1])
+                data["comments"] = views.comments(conn, self.prefix, rows[::-1], self.files_dir)
         return data
 
     def _new_comment_count(self, conn, issue_id: int) -> int | None:
@@ -171,7 +172,8 @@ class IssuesMixin:
         return row[0] if row else 0
 
     def _detail(self, conn, issue_id: int) -> dict:
-        data = views.issue_detail(conn, self.prefix, issue_id, timeutil.now_iso())
+        data = views.issue_detail(conn, self.prefix, issue_id, timeutil.now_iso(),
+                                  self.files_dir)
         data["new_comments"] = self._new_comment_count(conn, issue_id)
         return data
 
@@ -535,11 +537,15 @@ class IssuesMixin:
                     reverse if action == "link" else None)
 
     def delete_issue(self, key: str) -> dict:
+        """Owner only. Its attachment files go after commit when no other row references them."""
         with self._tx() as tx:
             self._require_owner(tx, "delete issues")
             row = self._issue_row(tx.conn, key)
             issue_key = self._key(row["id"])
+            files = [tuple(r) for r in tx.conn.execute(
+                "SELECT DISTINCT sha256, ext FROM attachments WHERE issue_id = ?", (row["id"],))]
             tx.conn.execute("DELETE FROM cursors WHERE scope = ?", (f"issue:{row['id']}",))
             tx.conn.execute("DELETE FROM issues WHERE id = ?", (row["id"],))
             self._event(tx, None, "delete", f"{issue_key} {row['title']}", None)
+        self._collect(files)
         return {"deleted": issue_key}

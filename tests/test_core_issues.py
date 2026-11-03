@@ -11,9 +11,9 @@ from earmark.errors import Conflict, Forbidden, IdentityRequired, InvalidRequest
 SUMMARY_KEYS = {"key", "id", "title", "status", "priority", "type", "topic", "assignee", "reviewer",
                 "reporter", "labels", "due", "parent", "children", "blocked", "stale",
                 "lease_until", "rank", "version", "comment_count", "last_comment_id",
-                "created_at", "updated_at"}
+                "attachment_count", "created_at", "updated_at"}
 DETAIL_KEYS = SUMMARY_KEYS | {"body", "started_at", "review_requested_at", "resolved_at", "links",
-                              "new_comments"}
+                              "new_comments", "attachments"}
 
 
 def keys(result) -> list[str]:

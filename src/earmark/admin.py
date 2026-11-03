@@ -8,6 +8,7 @@ import sys
 
 from earmark import db, model, timeutil, views
 from earmark.errors import InvalidRequest
+from earmark.service import FILES_DIR
 
 
 def _file_size(path: str) -> int:
@@ -30,6 +31,8 @@ class AdminMixin:
             online, agents = conn.execute(
                 "SELECT coalesce(sum(online), 0), count(*) FROM agents").fetchone()
             topics = conn.execute("SELECT count(*) FROM topics").fetchone()[0]
+            stored = conn.execute("SELECT coalesce(sum(size), 0) FROM (SELECT DISTINCT sha256, "
+                                  "ext, size FROM attachments)").fetchone()[0]
             heads = self._heads(conn)
         return {
             "path": self.path,
@@ -37,14 +40,15 @@ class AdminMixin:
             "owner": self.owner,
             "created_at": self.meta.get("created_at"),
             "schema_version": int(self.meta.get("schema_version", db.SCHEMA_VERSION)),
-            "settings": {"require_review": self.require_review, "lease_minutes": self.lease_minutes},
+            "settings": {"require_review": self.require_review, "lease_minutes": self.lease_minutes,
+                         "max_attachment_mb": self.max_attachment_mb},
             "counts": {"by_status": by_status, "total": sum(by_status.values()),
                        "open": sum(n for s, n in by_status.items() if s not in model.CLOSED)},
             "agents": {"online": int(online), "total": agents},
             "topics": topics,
             "heads": heads,
             "files": {"db": _file_size(self.path), "wal": _file_size(self.path + "-wal"),
-                      "shm": _file_size(self.path + "-shm")},
+                      "shm": _file_size(self.path + "-shm"), "attachments": stored},
             "enums": {"statuses": list(model.STATUSES), "priorities": list(model.PRIORITIES),
                       "types": list(model.TYPES), "comment_kinds": list(model.COMMENT_KINDS),
                       "roles": list(model.ROLES), "link_kinds": list(model.LINK_KINDS),
@@ -83,7 +87,7 @@ class AdminMixin:
 
     def _settings(self) -> dict:
         return {"require_review": self.require_review, "lease_minutes": self.lease_minutes,
-                "prefix": self.prefix}
+                "max_attachment_mb": self.max_attachment_mb, "prefix": self.prefix}
 
     @staticmethod
     def _setting_value(name: str, value) -> str:
@@ -97,10 +101,17 @@ class AdminMixin:
             if not 1 <= minutes <= 10080:
                 raise InvalidRequest("lease_minutes must be between 1 and 10080 (one week)")
             return str(minutes)
+        if name == "max_attachment_mb":
+            text = str(value).strip().lower().removesuffix("mb").strip()
+            if not text.isdigit() or not 1 <= int(text) <= model.MAX_ATTACHMENT_MB:
+                raise InvalidRequest(f"max_attachment_mb must be a whole number of MB between 1 "
+                                     f"and {model.MAX_ATTACHMENT_MB}")
+            return str(int(text))
         return model.parse_prefix(value)
 
-    def doctor(self) -> list[dict]:
-        """[{name, ok, detail}] checks for Python, SQLite, WAL, schema and the board file."""
+    def doctor(self, *, fix: bool = False) -> list[dict]:
+        """[{name, ok, detail}] checks for Python, SQLite, WAL, schema, the board file and the
+        attachment files. fix=True removes unreferenced files (under the write lock)."""
         conn = self.conn
         checks = []
 
@@ -128,6 +139,7 @@ class AdminMixin:
         check("wal_size", wal <= 64 * 1024 * 1024, f"{wal} bytes")
         owner = conn.execute("SELECT kind FROM agents WHERE handle = ?", (self.owner,)).fetchone()
         check("owner", owner is not None, f"{self.owner}" + ("" if owner else " is not an agent"))
+        checks.extend(self._file_checks(fix=fix))
         return checks
 
     def export(self) -> dict:
@@ -155,7 +167,10 @@ class AdminMixin:
                            "dst": model.format_key(prefix, r["dst"]), "kind": r["kind"],
                            "created_by": r["created_by"], "created_at": r["created_at"]}
                           for r in conn.execute("SELECT * FROM links ORDER BY src, dst, kind")],
-                "comments": views.comments(conn, prefix, comment_rows),
+                "comments": views.comments(conn, prefix, comment_rows, self.files_dir),
+                "attachments": views.attachments(conn.execute(
+                    f"SELECT {views.ATTACHMENT_COLUMNS} FROM attachments a ORDER BY a.id").fetchall(),
+                    prefix, self.files_dir),
                 "cursors": [dict(r) for r in conn.execute(
                     "SELECT * FROM cursors ORDER BY agent, scope")],
                 "events": [views.event(r, prefix) for r in conn.execute(
@@ -163,22 +178,40 @@ class AdminMixin:
             }
 
     def backup(self, dest: str) -> dict:
-        """Consistent copy through the SQLite backup API, as a single file (journal_mode=DELETE)."""
+        """Consistent copy into the directory dest (created when missing): dest/earmark.db
+        through the SQLite backup API (one file, journal_mode=DELETE), then dest/files/ with
+        every file that copy references. `missing` lists files that were already gone (detached
+        after the snapshot, or lost: see doctor). {path, bytes, dir, files, files_bytes, missing}"""
+        from earmark import attachments
+
         target = os.path.abspath(os.path.expanduser(dest))
-        if os.path.isdir(target):
-            stamp = timeutil.now_iso().replace(":", "").replace("-", "")
-            target = os.path.join(target, f"earmark-{stamp}.db")
-        if os.path.exists(target):
-            raise InvalidRequest(f"{target} already exists; choose a new path")
+        if os.path.exists(target) and not os.path.isdir(target):
+            raise InvalidRequest(f"{target} is a file; backup writes a directory: "
+                                 f"DIR/{db.DB_NAME} and DIR/files/", hint="earmark backup DIR")
         if not os.path.isdir(os.path.dirname(target)):
             raise InvalidRequest(f"directory {os.path.dirname(target)} does not exist")
-        copy = sqlite3.connect(target, isolation_level=None)
+        copy_path = os.path.join(target, db.DB_NAME)
+        if os.path.exists(copy_path):
+            raise InvalidRequest(f"{copy_path} already exists; choose a new directory")
+        files_out = os.path.join(target, FILES_DIR)
+        os.makedirs(files_out, exist_ok=True)
+        copy = sqlite3.connect(copy_path, isolation_level=None)
         try:
             self.conn.backup(copy)
             copy.execute("PRAGMA journal_mode=DELETE")
+            wanted = copy.execute("SELECT DISTINCT sha256, ext, size FROM attachments "
+                                  "ORDER BY sha256, ext").fetchall()
         finally:
             copy.close()
-        return {"path": target, "bytes": _file_size(target)}
+        copied, total, missing = 0, 0, []
+        for sha, ext, size in wanted:
+            if attachments.copy_file(views.file_path(self.files_dir, sha, ext),
+                                     views.file_path(files_out, sha, ext), size):
+                copied, total = copied + 1, total + size
+            else:
+                missing.append(sha + ext)
+        return {"path": copy_path, "bytes": _file_size(copy_path), "dir": target, "files": copied,
+                "files_bytes": total, "missing": missing}
 
     def data_version(self) -> int:
         """PRAGMA data_version on this board's connection: changes when another connection commits."""

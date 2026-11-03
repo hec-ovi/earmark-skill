@@ -21,9 +21,13 @@ INBOX_WHERE = (f"c.id > :cursor AND c.id > coalesce(ic.last_comment_id, 0) AND c
 
 class CommentsMixin:
     def add_comment(self, key: str, body: str, *, kind: str = "note",
-                    reply_to: int | None = None) -> dict:
+                    reply_to: int | None = None, attach=()) -> dict:
+        """Comment; `attach` (paths or (name, stream) tuples, see attach) adds files to it in
+        the same write."""
         body = require_text(body, "comment text")
         kind = model.parse_comment_kind(kind or "note")
+        if attach:
+            return self._comment_with_files(key, body, kind, reply_to, attach)
         with self._tx() as tx:
             row = self._issue_row(tx.conn, key)
             if reply_to is not None:
@@ -67,7 +71,7 @@ class CommentsMixin:
     def _comment(self, conn, comment_id: int) -> dict:
         row = conn.execute(f"SELECT {views.COMMENT_COLUMNS} FROM comments c WHERE c.id = ?",
                            (comment_id,)).fetchone()
-        return views.comments(conn, self.prefix, [row])[0]
+        return views.comments(conn, self.prefix, [row], self.files_dir)[0]
 
     def edit_comment(self, comment_id: int, body: str) -> dict:
         body = require_text(body, "comment text")
@@ -118,7 +122,7 @@ class CommentsMixin:
                 rows = conn.execute(f"{select} ORDER BY c.id LIMIT ?", params + [limit + 1]).fetchall()
                 has_more = len(rows) > limit
                 rows = rows[:limit]
-            items = views.comments(conn, self.prefix, rows)
+            items = views.comments(conn, self.prefix, rows, self.files_dir)
             if new:
                 upto = items[-1]["id"] if has_more else conn.execute(
                     "SELECT coalesce(max(id), ?) FROM comments WHERE issue_id = ?",
@@ -144,7 +148,7 @@ class CommentsMixin:
                 f"ORDER BY c.id LIMIT :n",
                 {"cursor": cursor, "me": actor, "n": limit + 1}).fetchall()
             has_more = len(rows) > limit
-            items = views.comments(conn, self.prefix, rows[:limit])
+            items = views.comments(conn, self.prefix, rows[:limit], self.files_dir)
         last_id = items[-1]["id"] if items else cursor
         if items and not peek:
             self._advance_cursor(actor, "inbox", last_id)

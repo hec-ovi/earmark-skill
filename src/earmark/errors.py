@@ -67,6 +67,14 @@ class InvalidRequest(EarmarkError):
     code = "invalid_request"
 
 
+class PayloadTooLarge(InvalidRequest):
+    """A file over the attachment limit: invalid_request in the envelope, HTTP 413."""
+
+    @property
+    def http_status(self) -> int:
+        return 413
+
+
 class NotFound(EarmarkError):
     code = "not_found"
 

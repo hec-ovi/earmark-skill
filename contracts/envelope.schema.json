@@ -3,7 +3,7 @@
   "$id": "https://github.com/hec-ovi/earmark-skill/contracts/envelope.schema.json",
   "title": "Envelope",
   "description": "Wrapper for every `earmark --json` output and every HTTP API response. Additive fields are MINOR (consumers ignore unknown fields); removal, rename, type change or meaning change is MAJOR.",
-  "x-contract-version": "1.0.0",
+  "x-contract-version": "1.1.0",
   "type": "object",
   "required": ["contract_version", "ok", "data", "error", "meta"],
   "additionalProperties": false,

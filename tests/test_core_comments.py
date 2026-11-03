@@ -9,7 +9,7 @@ from tests.support import BoardCase
 from earmark.errors import Forbidden, IdentityRequired, InvalidRequest, NotFound
 
 COMMENT_KEYS = {"id", "issue", "author", "kind", "body", "reply_to", "mentions", "created_at",
-                "edited_at"}
+                "edited_at", "attachments"}
 
 
 def bodies(result) -> list[str]:

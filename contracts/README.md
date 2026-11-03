@@ -5,7 +5,7 @@ JSON Schemas (draft 2020-12) for everything earmark prints with `--json` and ser
 | File | Describes |
 |---|---|
 | `envelope.schema.json` | the wrapper `{contract_version, ok, data, error, meta}` and the closed error code set |
-| `board.schema.json` | the `data` shapes under `$defs`: `IssueSummary`, `Issue`, `Comment`, `Topic`, `Agent`, `Profile`, `Event`, `Briefing`, plus the list pages (`IssueList`, `CommentPage`, `InboxPage`, `Activity`, `Team`) and error details (`NextEmpty`, `HolderConflict`, `VersionConflict`) |
+| `board.schema.json` | the `data` shapes under `$defs`: `IssueSummary`, `Issue`, `Comment`, `Attachment`, `Topic`, `Agent`, `Profile`, `Event`, `Briefing`, plus the list pages (`IssueList`, `CommentPage`, `InboxPage`, `Activity`, `Team`) and error details (`NextEmpty`, `HolderConflict`, `VersionConflict`) |
 
 ## Versions
 

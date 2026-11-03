@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -13,6 +14,7 @@ from earmark import db, model, timeutil, views
 from earmark.errors import Forbidden, IdentityRequired, InvalidRequest, NotFound, NotJoined
 
 SEEN_THROTTLE_S = 60
+FILES_DIR = "files"  # attachment bytes, beside the database
 
 
 class Tx:
@@ -69,6 +71,18 @@ class BoardBase:
             return int(self.meta.get("lease_minutes", model.DEFAULT_LEASE_MINUTES))
         except ValueError:
             return model.DEFAULT_LEASE_MINUTES
+
+    @property
+    def max_attachment_mb(self) -> int:
+        try:
+            return int(self.meta.get("max_attachment_mb", model.DEFAULT_MAX_ATTACHMENT_MB))
+        except ValueError:
+            return model.DEFAULT_MAX_ATTACHMENT_MB
+
+    @property
+    def files_dir(self) -> str:
+        """Attachment bytes: `files/` beside the database file."""
+        return os.path.join(os.path.dirname(os.path.abspath(self.path)), FILES_DIR)
 
     def set_actor(self, handle: str | None) -> None:
         """Validated lazily: an unknown or malformed handle fails with not_joined on first write."""

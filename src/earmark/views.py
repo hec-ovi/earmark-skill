@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import timedelta
 TYPE_CHECKING = False
@@ -53,7 +54,8 @@ def _batch(conn: sqlite3.Connection, sql: str, ids: list) -> Iterable[sqlite3.Ro
 
 
 def issue_extras(conn: sqlite3.Connection, ids: list[int]) -> dict:
-    """labels, children counts, comment counts/last ids and open-blocker flags for ids."""
+    """labels, children counts, comment counts/last ids, attachment counts and open-blocker
+    flags for ids."""
     labels: dict[int, list[str]] = {}
     for row in _batch(conn, "SELECT issue_id, label FROM labels WHERE issue_id IN ({marks}) "
                             "ORDER BY issue_id, label", ids):
@@ -64,11 +66,15 @@ def issue_extras(conn: sqlite3.Connection, ids: list[int]) -> dict:
     comments = {r[0]: (r[1], r[2]) for r in _batch(
         conn, "SELECT issue_id, count(*), max(id) FROM comments WHERE issue_id IN ({marks}) "
               "GROUP BY issue_id", ids)}
+    attachments = {r[0]: r[1] for r in _batch(
+        conn, "SELECT issue_id, count(*) FROM attachments WHERE issue_id IN ({marks}) "
+              "GROUP BY issue_id", ids)}
     blocked = {r[0] for r in _batch(
         conn, "SELECT DISTINCT k.dst FROM links k JOIN issues b ON b.id = k.src "
               "WHERE k.kind = 'blocks' AND b.status NOT IN ('done', 'canceled') "
               "AND k.dst IN ({marks})", ids)}
-    return {"labels": labels, "children": children, "comments": comments, "blocked": blocked}
+    return {"labels": labels, "children": children, "comments": comments,
+            "attachments": attachments, "blocked": blocked}
 
 
 def summary(row, prefix: str, extras: dict, now_ts: str) -> dict:
@@ -96,6 +102,7 @@ def summary(row, prefix: str, extras: dict, now_ts: str) -> dict:
         "version": row["version"],
         "comment_count": count,
         "last_comment_id": last,
+        "attachment_count": extras["attachments"].get(issue_id, 0),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -119,7 +126,9 @@ def summaries(conn: sqlite3.Connection, prefix: str, ids: Iterable[int], now_ts:
     return summaries_from_rows(conn, prefix, ordered, now_ts)
 
 
-def issue_detail(conn: sqlite3.Connection, prefix: str, issue_id: int, now_ts: str) -> dict | None:
+def issue_detail(conn: sqlite3.Connection, prefix: str, issue_id: int, now_ts: str,
+                 root: str) -> dict | None:
+    """Issue for issue_id; `root` is the board's files directory (attachment paths)."""
     row = conn.execute(f"SELECT {DETAIL_COLUMNS} FROM {ISSUE_FROM} WHERE i.id = ?",
                        (issue_id,)).fetchone()
     if row is None:
@@ -131,6 +140,9 @@ def issue_detail(conn: sqlite3.Connection, prefix: str, issue_id: int, now_ts: s
         "SELECT id FROM issues WHERE parent_id = ? ORDER BY rank, id", (issue_id,))]
     data["children"] = summaries(conn, prefix, child_ids, now_ts)
     data["links"] = issue_links(conn, prefix, issue_id)
+    rows = conn.execute(f"SELECT {ATTACHMENT_COLUMNS} FROM attachments a WHERE a.issue_id = ? "
+                        f"ORDER BY a.id", (issue_id,)).fetchall()
+    data["attachments"] = attachments(rows, prefix, root)
     return data
 
 
@@ -157,12 +169,18 @@ def issue_links(conn: sqlite3.Connection, prefix: str, issue_id: int) -> dict:
 COMMENT_COLUMNS = "c.id, c.issue_id, c.author, c.kind, c.body, c.reply_to, c.created_at, c.edited_at"
 
 
-def comments(conn: sqlite3.Connection, prefix: str, rows: list) -> list[dict]:
+def comments(conn: sqlite3.Connection, prefix: str, rows: list, root: str) -> list[dict]:
+    """Comment dicts with mentions and attachments (one batch each); `root` is the board's
+    files directory."""
     ids = [r["id"] for r in rows]
     mentioned: dict[int, list[str]] = {}
     for row in _batch(conn, "SELECT comment_id, handle FROM mentions WHERE comment_id IN ({marks}) "
                             "ORDER BY rowid", ids):
         mentioned.setdefault(row[0], []).append(row[1])
+    files: dict[int, list[dict]] = {}
+    for row in _batch(conn, f"SELECT {ATTACHMENT_COLUMNS} FROM attachments a "
+                            "WHERE a.comment_id IN ({marks}) ORDER BY a.id", ids):
+        files.setdefault(row["comment_id"], []).append(attachment(row, prefix, root))
     return [{
         "id": r["id"],
         "issue": model.format_key(prefix, r["issue_id"]),
@@ -173,7 +191,40 @@ def comments(conn: sqlite3.Connection, prefix: str, rows: list) -> list[dict]:
         "mentions": mentioned.get(r["id"], []),
         "created_at": r["created_at"],
         "edited_at": r["edited_at"],
+        "attachments": files.get(r["id"], []),
     } for r in rows]
+
+
+# ---- attachments ------------------------------------------------------------------------
+
+ATTACHMENT_COLUMNS = ("a.id, a.issue_id, a.comment_id, a.name, a.mime, a.size, a.sha256, a.ext, "
+                      "a.author, a.created_at")
+
+
+def file_path(root: str, sha256: str, ext: str) -> str:
+    """Where a file's bytes live: <root>/<sha[0:2]>/<sha256><ext>."""
+    return os.path.join(root, sha256[:2], sha256 + ext)
+
+
+def attachment(row, prefix: str, root: str) -> dict:
+    return {
+        "id": row["id"],
+        "issue": model.format_key(prefix, row["issue_id"]),
+        "comment_id": row["comment_id"],
+        "name": row["name"],
+        "mime": row["mime"],
+        "kind": model.attachment_kind(row["mime"]),
+        "size": row["size"],
+        "sha256": row["sha256"],
+        "author": row["author"],
+        "created_at": row["created_at"],
+        "url": f"/api/attachments/{row['id']}/raw",
+        "path": file_path(root, row["sha256"], row["ext"]),
+    }
+
+
+def attachments(rows: list, prefix: str, root: str) -> list[dict]:
+    return [attachment(r, prefix, root) for r in rows]
 
 
 def event(row, prefix: str) -> dict:

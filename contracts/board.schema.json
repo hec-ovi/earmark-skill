@@ -3,7 +3,7 @@
   "$id": "https://github.com/hec-ovi/earmark-skill/contracts/board.schema.json",
   "title": "Board payloads",
   "description": "Shapes returned by the board service: the `data` of every `earmark --json` envelope and every HTTP API response (docs/HTTP_API.md). Additive fields are MINOR (consumers ignore unknown fields); removal, rename, type change or meaning change is MAJOR.",
-  "x-contract-version": "1.0.0",
+  "x-contract-version": "1.1.0",
   "$defs": {
     "Key": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{0,9}-[1-9][0-9]*$", "description": "Issue key <PREFIX>-<id>." },
     "Handle": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
@@ -23,7 +23,8 @@
       "description": "One issue in a list. `stale`: the holder's lease has expired. `blocked`: an issue that blocks it is not done or canceled.",
       "required": ["key", "id", "title", "status", "priority", "type", "topic", "assignee", "reviewer",
                    "reporter", "labels", "due", "parent", "children", "blocked", "stale", "lease_until",
-                   "rank", "version", "comment_count", "last_comment_id", "created_at", "updated_at"],
+                   "rank", "version", "comment_count", "last_comment_id", "attachment_count",
+                   "created_at", "updated_at"],
       "additionalProperties": false,
       "properties": {
         "key": { "$ref": "#/$defs/Key" },
@@ -47,6 +48,7 @@
         "version": { "type": "integer", "minimum": 1 },
         "comment_count": { "$ref": "#/$defs/Count" },
         "last_comment_id": { "type": ["integer", "null"] },
+        "attachment_count": { "$ref": "#/$defs/Count", "description": "Files on the issue and its comments." },
         "created_at": { "$ref": "#/$defs/Timestamp" },
         "updated_at": { "$ref": "#/$defs/Timestamp" }
       }
@@ -57,8 +59,9 @@
       "description": "Issue detail: IssueSummary fields plus body, lifecycle timestamps, children as summaries, links, and new_comments for the actor (null without one). `comments` holds the last N comments when requested (show -c N).",
       "required": ["key", "id", "title", "status", "priority", "type", "topic", "assignee", "reviewer",
                    "reporter", "labels", "due", "parent", "children", "blocked", "stale", "lease_until",
-                   "rank", "version", "comment_count", "last_comment_id", "created_at", "updated_at",
-                   "body", "started_at", "review_requested_at", "resolved_at", "links", "new_comments"],
+                   "rank", "version", "comment_count", "last_comment_id", "attachment_count",
+                   "created_at", "updated_at", "body", "started_at", "review_requested_at",
+                   "resolved_at", "links", "new_comments", "attachments"],
       "additionalProperties": false,
       "properties": {
         "key": { "$ref": "#/$defs/Key" },
@@ -82,6 +85,7 @@
         "version": { "type": "integer", "minimum": 1 },
         "comment_count": { "$ref": "#/$defs/Count" },
         "last_comment_id": { "type": ["integer", "null"] },
+        "attachment_count": { "$ref": "#/$defs/Count", "description": "Files on the issue and its comments." },
         "created_at": { "$ref": "#/$defs/Timestamp" },
         "updated_at": { "$ref": "#/$defs/Timestamp" },
         "body": { "type": "string" },
@@ -90,7 +94,9 @@
         "resolved_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "links": { "$ref": "#/$defs/Links" },
         "new_comments": { "type": ["integer", "null"], "minimum": 0 },
-        "comments": { "type": "array", "items": { "$ref": "#/$defs/Comment" } }
+        "comments": { "type": "array", "items": { "$ref": "#/$defs/Comment" } },
+        "attachments": { "type": "array", "items": { "$ref": "#/$defs/Attachment" },
+                         "description": "Every file on the issue, comment ones included, oldest first." }
       }
     },
 
@@ -110,7 +116,8 @@
     "Comment": {
       "type": "object",
       "description": "Ids are global and monotonic: one id is a complete read cursor.",
-      "required": ["id", "issue", "author", "kind", "body", "reply_to", "mentions", "created_at", "edited_at"],
+      "required": ["id", "issue", "author", "kind", "body", "reply_to", "mentions", "created_at", "edited_at",
+                   "attachments"],
       "additionalProperties": false,
       "properties": {
         "id": { "type": "integer", "minimum": 1 },
@@ -121,7 +128,30 @@
         "reply_to": { "type": ["integer", "null"] },
         "mentions": { "type": "array", "items": { "$ref": "#/$defs/Handle" } },
         "created_at": { "$ref": "#/$defs/Timestamp" },
-        "edited_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
+        "edited_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "attachments": { "type": "array", "items": { "$ref": "#/$defs/Attachment" } }
+      }
+    },
+
+    "Attachment": {
+      "type": "object",
+      "description": "A file on an issue (comment_id null) or on one of its comments. Bytes live at `path` (absolute, content-addressed by sha256); `url` serves them over HTTP.",
+      "required": ["id", "issue", "comment_id", "name", "mime", "kind", "size", "sha256", "author",
+                   "created_at", "url", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "issue": { "$ref": "#/$defs/Key" },
+        "comment_id": { "type": ["integer", "null"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "mime": { "type": "string", "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$" },
+        "kind": { "enum": ["image", "audio", "video", "pdf", "text", "file"] },
+        "size": { "$ref": "#/$defs/Count" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "author": { "$ref": "#/$defs/Handle" },
+        "created_at": { "$ref": "#/$defs/Timestamp" },
+        "url": { "type": "string", "pattern": "^/api/attachments/[1-9][0-9]*/raw$" },
+        "path": { "type": "string", "minLength": 1 }
       }
     },
 
