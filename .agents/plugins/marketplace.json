@@ -1,0 +1,20 @@
+{
+  "name": "earmark-skill",
+  "interface": {
+    "displayName": "earmark"
+  },
+  "plugins": [
+    {
+      "name": "earmark-codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/earmark-codex"
+      },
+      "policy": {
+        "installation": "INSTALLED_BY_DEFAULT",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
