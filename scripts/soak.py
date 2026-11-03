@@ -75,7 +75,9 @@ def cli_env() -> dict:
 
 # Runs the launcher in the same interpreter and, at exit, hands /proc/self/io to the harness
 # through an inherited pipe: write_bytes, cancelled_write_bytes (dirty pages dropped by unlink
-# or truncate before writeback, such as a deleted -shm), wchar and syscw. The CLI closes the
+# or truncate before writeback, such as a deleted -shm), wchar and syscw, plus VmHWM from
+# /proc/self/status, the peak RSS of the CLI's own address space (wait4's ru_maxrss also
+# carries the parent's RSS at fork time, so it is only an upper bound). The CLI closes the
 # board before returning, so the snapshot sees the close-time checkpoint; wait4() still gives
 # the total, and `late` in each record is the difference. Adds about 2 ms per call
 # (`--reads` measures it as `ls (no wrapper)`).
@@ -84,7 +86,10 @@ WRAPPER = (
     "fd = int(os.environ.pop('SOAK_IO_FD'))\n"
     "def _io():\n"
     "    with open('/proc/self/io', 'rb') as fh:\n"
-    "        os.write(fd, fh.read())\n"
+    "        data = fh.read()\n"
+    "    with open('/proc/self/status', 'rb') as fh:\n"
+    "        data += b''.join(l for l in fh if l.startswith(b'VmHWM:'))\n"
+    "    os.write(fd, data)\n"
     "atexit.register(_io)\n"
     "sys.argv = sys.argv[1:]\n"
     "with open(sys.argv[0], 'rb') as fh:\n"
@@ -98,7 +103,7 @@ def run(cmd: list[str], env: dict, timeout: float = 300.0, cwd: str | None = Non
         wrap: bool = False) -> dict:
     """Run one process to completion. Returns code, out, err, t0, t1 (monotonic), bytes
     written (wait4 rusage), peak RSS (KiB), CPU seconds and, with wrap (cmd = [python, cli,
-    ...]), the child's own /proc/self/io counters at exit."""
+    ...]), the child's own /proc/self/io counters and VmHWM at exit."""
     io_r = io_w = None
     if wrap:
         io_r, io_w = os.pipe()
@@ -124,8 +129,11 @@ def run(cmd: list[str], env: dict, timeout: float = 300.0, cwd: str | None = Non
     io = {}
     for line in io_text.splitlines():
         k, _, v = line.partition(":")
-        if v.strip().isdigit():
+        v = v.strip().removesuffix(" kB")
+        if v.isdigit():
             io[k.strip()] = int(v)
+    if "VmHWM" in io:
+        rss_kb = io["VmHWM"]
     return {"code": code, "out": out, "err": err, "t0": t0, "t1": t1, "written": written,
             "rss_kb": rss_kb, "cpu": ru.ru_utime + ru.ru_stime,
             "cancelled": io.get("cancelled_write_bytes"), "wchar": io.get("wchar"),
