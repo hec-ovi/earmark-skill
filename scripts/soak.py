@@ -3,9 +3,12 @@
 
 Every agent is its own OS process. It runs the skill's loop by calling the CLI exactly as an
 agent shell does, one subprocess per command (`<python> <repo>/earmark --db B --as H ...`):
-workers `next` -> `comments --new` -> 1-3 progress comments -> `review`, then `next --review`
-when nothing is ready; reviewers approve or reject (about 20 % rejected, so rework happens);
-everyone reads `ls`, `show`, `inbox`, `team` now and then and waits with `earmark wait`.
+workers `next` (the issue and its unseen comments) -> 1-3 progress comments -> `review --next`
+(hand off and claim the next issue in one call), then `next --review` when nothing is ready;
+reviewers `next --review` -> `approve --next` or `reject --next` (about 20 % rejected, so
+rework happens). A command that ends with `· N changes for you` is followed by `earmark check`;
+idle agents run `check`, `ls --count` and `earmark wait`; everyone reads `show`, `ls`, `team`
+or `topics` now and then.
 
     python3 scripts/soak.py                                   # 12 workers + 4 reviewers, until empty
     python3 scripts/soak.py --agents 6 --reviewers 2 --think 2-6 --minutes 10
@@ -61,7 +64,8 @@ THINGS = ["token refresh", "match queue", "shadow cascade", "ragdoll joints", "m
           "key rebinding", "footstep mixer", "quest journal", "asset cache", "save migration"]
 PRIORITIES = ["urgent", "high", "medium", "medium", "low", "none"]
 TYPES = ["bug", "feature", "task", "chore"]
-KEY_RE = re.compile(r"^([A-Z][A-Z0-9]*-\d+)\s")
+KEY_RE = re.compile(r"^([A-Z][A-Z0-9]*-\d+)  \S", re.MULTILINE)  # issue header of next/show
+HINT_RE = re.compile(r"changes? for you: earmark check")
 COMMENT_RE = re.compile(r"^#(\d+)\b", re.MULTILINE)
 COUNT_RE = re.compile(r"·\s*(\d+)\s+comments?\b")
 
@@ -212,79 +216,103 @@ class Agent:
             time.sleep(0.05)  # conflict, busy or error: do not spin
         return r
 
-    def key_of(self, r: dict) -> str | None:
-        m = KEY_RE.match(r["out"])
+    def key_of(self, r: dict, chained: bool = False) -> str | None:
+        """Key of the issue `next` printed; after `--next` the action's own line comes first."""
+        out = r["out"].split("\n", 1)[1] if chained and "\n" in r["out"] else r["out"]
+        m = KEY_RE.search(out)
         if m is None:
             self.unexpected.append(("parse", r["code"], r["out"][:120]))
         return m.group(1) if m else None
 
+    def call_and_check(self, op: str, args: list[str], ok: tuple = (0,)) -> dict:
+        """Run a command; when it ends with the change hint, run `earmark check` as the skill says."""
+        r = self.call(op, args, ok)
+        if HINT_RE.search(r["out"]):
+            self.call("check", ["check"])
+        return r
+
     # -- loops --------------------------------------------------------------------------
-    def work(self, key: str, claimed_at: float) -> None:
-        self.call("comments --new", ["comments", key, "--new"])
-        if self.rng.random() < 0.2:
+    # Each step returns what the agent holds next: (key, seat, claimed_at), "empty" when a
+    # chained --next found nothing (exit 4), or None to start over with `next`.
+    def claimed(self, r: dict, seat: str, chained: bool = False):
+        if r["code"] == 0:
+            key = self.key_of(r, chained)
+            return (key, seat, r["t1"]) if key else None
+        return "empty" if r["code"] == 4 else None
+
+    def work(self, key: str, claimed_at: float):
+        if self.rng.random() < 0.1:
             self.call("show", ["show", key])
         steps = self.rng.randint(1, 3)
         for n in range(1, steps + 1):
             text = f"step {n}/{steps}: moved the state into the store, tests for {key.lower()} pass"
-            r = self.call("comment", ["comment", key, text, "--kind", "progress"])
+            r = self.call_and_check("comment", ["comment", key, text, "--kind", "progress"])
             if r["code"] == 0:
                 for cid in COMMENT_RE.findall(r["out"]):
                     self.comment_ids.append((int(cid), key))
-        note = f"changed src/{key.lower()}.py · run pytest tests/test_{key.lower()}.py"
-        r = self.call("review", ["review", key, "-m", note])
-        self.holds.append((key, "work", claimed_at, r["t0"]))
         self.occasional_read()
+        note = f"changed src/{key.lower()}.py · run pytest tests/test_{key.lower()}.py"
+        r = self.call_and_check("review --next", ["review", key, "-m", note, "--next"], ok=(0, 4))
+        self.holds.append((key, "work", claimed_at, r["t0"]))
+        return self.claimed(r, "work", chained=True)
 
-    def review(self, key: str, claimed_at: float) -> None:
-        self.call("comments --new", ["comments", key, "--new"])
-        if self.rng.random() < 0.3:
+    def review(self, key: str, claimed_at: float):
+        if self.rng.random() < 0.2:
             self.call("show", ["show", key])
         if self.rng.random() < self.cfg["reject_rate"]:
             note = f"1. src/{key.lower()}.py:42 expected the cached value, got a fresh read"
-            r = self.call("reject", ["reject", key, "-m", note])
+            r = self.call_and_check("reject --next", ["reject", key, "-m", note, "--next"], ok=(0, 4))
         else:
-            r = self.call("approve", ["approve", key, "-m", "ran the tests and read the diff"])
+            r = self.call_and_check("approve --next", ["approve", key, "-m",
+                                    "ran the tests and read the diff", "--next"], ok=(0, 4))
         self.holds.append((key, "review", claimed_at, r["t0"]))
+        # --next claims in the role's default mode: a reviewer's next handoff, a worker's work
+        return self.claimed(r, "review" if self.role == "reviewer" else "work", chained=True)
 
     def occasional_read(self) -> None:
         x = self.rng.random()
-        if x < 0.25:
+        if x < 0.2:
             self.call("ls", ["ls", "-t", self.rng.choice(AREAS), "--ready"])
-        elif x < 0.40:
-            self.call("inbox", ["inbox"])
-        elif x < 0.50:
+        elif x < 0.3:
             self.call("team", ["team"])
-        elif x < 0.55:
+        elif x < 0.35:
             self.call("topics", ["topics", "--depth", "2"])
 
     def idle(self) -> bool:
-        """Skill steps 7-8: inbox, then stop when the board is empty, else wait. True = stop."""
-        self.call("inbox", ["inbox"])
+        """Skill steps 7-8: check, then stop when the board is empty, else wait. True = stop.
+        `wait --for any` also wakes on unseen inbox comments, which this loop (like the skill)
+        reads through `check`, so it would return at once; wait for work or reviews instead."""
+        self.call("check", ["check"])
         r = self.call("ls --count", ["ls", "--count"])
         if r["code"] == 0 and r["out"].strip() == "0":
             return True
-        mode = "review" if self.role == "reviewer" else "any"
+        mode = "review" if self.role == "reviewer" else "work"
         self.call("wait", ["wait", "--for", mode, "--timeout", f"{self.cfg['wait_s']}s"], ok=(0, 4))
         return False
 
     def loop(self, deadline: float) -> None:
+        held = None
         while time.monotonic() < deadline:
-            if self.role == "worker":
-                r = self.call("next", ["next"], ok=(0, 4))
-                if r["code"] == 0:
-                    key = self.key_of(r)
-                    if key:
-                        self.work(key, r["t1"])
+            if isinstance(held, tuple):
+                key, seat, at = held
+                held = self.work(key, at) if seat == "work" else self.review(key, at)
+                continue
+            if held == "empty" and self.role == "reviewer":  # approve/reject --next found none
+                held = None
+                if self.idle():
+                    return
+                continue
+            if self.role == "worker" and held != "empty":
+                r = self.call_and_check("next", ["next"], ok=(0, 4))
+                held = self.claimed(r, "work")
+                if held != "empty":
                     continue
-                if r["code"] != 4:
-                    continue
-            r = self.call("next --review", ["next", "--review"], ok=(0, 4))
-            if r["code"] == 0:
-                key = self.key_of(r)
-                if key:
-                    self.review(key, r["t1"])
-            elif r["code"] == 4 and self.idle():
-                return
+            r = self.call_and_check("next --review", ["next", "--review"], ok=(0, 4))
+            held = self.claimed(r, "review")
+            if held == "empty":
+                held = None
+                if self.idle():
+                    return
 
     def result(self, error: str | None = None) -> dict:
         return {"handle": self.handle, "role": self.role, "calls": self.calls, "holds": self.holds,
@@ -572,8 +600,10 @@ def _invariants(conn, outcomes: list[dict], until_empty: bool) -> dict:
         problems.append(f"comment ids: {duplicate_ids} duplicates, {mismatched} not stored as printed")
     kinds = dict(Counter(v[2] for v in stored.values()))
     ok_calls = Counter(c[0] for o in outcomes for c in o["calls"] if c[3] == 0)
-    expect = {"progress": ok_calls["comment"], "handoff": ok_calls["review"],
-              "approval": ok_calls["approve"], "changes": ok_calls["reject"]}
+    acted = Counter(c[0].split()[0] for o in outcomes for c in o["calls"]  # --next: 4 = nothing next
+                    if c[0].endswith("--next") and c[3] in (0, 4))
+    expect = {"progress": ok_calls["comment"], "handoff": acted["review"],
+              "approval": acted["approve"], "changes": acted["reject"]}
     kind_mismatch = {k: (kinds.get(k, 0), v) for k, v in expect.items() if kinds.get(k, 0) != v}
     if kind_mismatch:
         problems.append(f"comment kinds stored vs successful calls: {kind_mismatch}")
@@ -638,6 +668,11 @@ def seed_board(args, workdir: str) -> tuple[str, list[tuple]]:
     db = os.path.join(workdir, ".earmark", "earmark.db")
     owner = [args.python, args.cli, "--db", db, "--as", "owner"]
     calls: list[tuple] = []
+    # Random 20 % rejects would reach the default review cap (3) on a few issues, which parks
+    # them in blocked for a pm; raise it so every issue can finish.
+    r = run(owner + ["config", "max_review_rounds", "100"], env, cwd=workdir)
+    if r["code"] != 0:
+        sys.exit(f"soak: config max_review_rounds failed: {r['err'] or r['out']}")
     for path in TOPICS:
         r = run(owner + ["topic", "add", path], env, cwd=workdir, wrap=args.wrap)
         calls.append(rec("topic add", r))
@@ -779,6 +814,9 @@ def _soak(args, workdir: str) -> dict:
         "files_before": files_before,
         "files_after": files_after,
         "db_wal_growth": total(files_after) - total(files_before),
+        "db_growth": ((files_after.get("earmark.db") or {}).get("size", 0)
+                      - (files_before.get("earmark.db") or {}).get("size", 0)),
+        "wal_after": (files_after.get("earmark.db-wal") or {}).get("size", 0),
         "wal_max": monitor.wal_max,
         "db_max": monitor.db_max,
         "wal_limit": JOURNAL_SIZE_LIMIT,
@@ -1211,7 +1249,8 @@ def print_soak(res: dict, out) -> None:
           f"{size(d['cli_net_total'])} ({size(d['cli_net_per_command'])}/command, "
           f"{size(d['cli_net_per_issue_done'])}/issue done, {size(d['cli_net_per_agent_hour'])}"
           f"/agent-hour)", file=out)
-    print(f"files: earmark.db+wal growth {size(d['db_wal_growth'])} · write() calls passed "
+    print(f"files: earmark.db growth {size(d['db_growth'])}, WAL left {size(d['wal_after'])} · "
+          f"write() calls passed "
           f"{size(d['cli_wchar_total'])} · partition sectors written {size(d['partition_written'])} "
           f"(whole partition, includes other host activity)", file=out)
     if d.get("ui_during_run"):
