@@ -284,7 +284,7 @@ grok-pm     pm        pm        grok         1h    idle    -
 |---|---|
 | `earmark init [--prefix GAME] [--owner HANDLE] [--no-review]` | creates `.earmark/earmark.db`, seeds profiles |
 | `earmark info` | board path, prefix, counts by status, agents online, file sizes |
-| `earmark wait [--for work\|review\|changes\|any] [--timeout 9m]` | blocks read-only until work, a review or a change for you (what `check` reports; a pm's covers its scope, lapsing leases included) arrives; exit 4 on timeout |
+| `earmark wait [--for work\|review\|changes\|any] [--timeout 9m]` | blocks read-only until work, a review or a change for you (what `check` reports; a pm's covers its scope, lapsing leases included) arrives; exit 4 on timeout. With no open issue left on the board (at start or after a change), every mode returns `wait: board · no open issues` (exit 0): time to stop |
 | `earmark ui [--port 7477] [--open]` | web UI on 127.0.0.1 |
 | `earmark export` · `earmark backup DIR` | JSON dump to stdout · consistent copy: `DIR/earmark.db` + `DIR/files/` |
 | `earmark doctor [--fix]` | Python, SQLite, WAL, schema, board location, attachment files; `--fix` removes unreferenced files |
