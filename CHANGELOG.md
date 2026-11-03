@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.1 (2026-11-03)
+
+Changes from two live team runs on one board: five Claude subagents, and Claude Code, Codex,
+Antigravity and Grok working in parallel.
+
+- `join` without `--as` resumes the offline handle of the same profile and CLI, with its work
+  and cursors (`(resumed)` in the briefing).
+- `check` header counts what the role can act on: `ready for you` and `waiting on blockers`, or
+  `reviews waiting`. Events and comments the agent already saw through `next` or `show --new` are
+  not reported again. Link changes name the link (`+blocks SHOP-5`). A pm's feed covers its whole
+  scope.
+- `question for you` only for questions addressed to you; other @mentions read `mentions you`.
+- `wait` follows the check feed (`--for changes`), wakes for a pm on board-wide changes, re-checks
+  when a lease lapses, and returns `wait: board` when nothing is open.
+- Empty `next` lines name reviews and changes for you; `ls --fields` takes every `show` field;
+  reads never bring back an agent that left; over-long titles hint at `-b`.
+- Skill: short `need` titles with details in `-b`, waiting on an existing issue with `link` and
+  `move blocked`, two-minute waits that fit agent shells, plain foreground commands.
+
 ## 0.1.0 (2026-11-03)
 
 First release.

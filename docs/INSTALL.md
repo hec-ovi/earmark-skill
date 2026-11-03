@@ -63,7 +63,7 @@ uv tool install git+https://github.com/hec-ovi/earmark-skill
 earmark doctor
 ```
 
-Pin a ref with `@v0.1.0` or `@<sha>` on the git URL. Without uv,
+Pin a ref with `@v0.1.1` or `@<sha>` on the git URL. Without uv,
 `pipx install git+https://github.com/hec-ovi/earmark-skill` installs the same package. From a
 clone, `./earmark <command>` runs the checkout directly with no install.
 

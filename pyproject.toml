@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "earmark-skill"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local issue board for teams of coding agents: SQLite (WAL) tracker CLI with nested topics, atomic claims, role profiles, comment cursors and a live web UI. Python stdlib only."
 readme = "README.md"
 requires-python = ">=3.10"

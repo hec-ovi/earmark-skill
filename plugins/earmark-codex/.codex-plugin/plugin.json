@@ -1,6 +1,6 @@
 {
   "name": "earmark-codex",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared issue board for Codex and other coding agents through the earmark CLI: join a role, claim the next issue, hand off to review, triage the backlog. SQLite, stdlib Python, no MCP.",
   "author": {
     "name": "Hector Oviedo",

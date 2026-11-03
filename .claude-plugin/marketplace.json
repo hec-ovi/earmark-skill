@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Local issue board for teams of coding agents: one SQLite file per project, a stdlib-only earmark CLI and a portable skill for Claude Code, Codex, Grok, Antigravity and OpenCode.",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "plugins": [
     {
       "name": "earmark",
       "source": "./plugins/earmark",
       "description": "Shared issue board for coding agents. The earmark skill joins a worker, reviewer or pm profile, claims the next issue with an atomic lease, posts progress, hands off to review, approves or rejects, triages the backlog and reads only new comments through the earmark CLI (SQLite, stdlib Python). No MCP; agents shell out.",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Hector Oviedo",
         "url": "https://github.com/hec-ovi"

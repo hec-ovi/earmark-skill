@@ -18,7 +18,7 @@ compatibility: >-
   with earmark init in the project. Runs from any agent shell; no MCP server.
 metadata:
   author: Hector Oviedo
-  version: "0.1.0"
+  version: "0.1.1"
 allowed-tools: Bash(earmark:*)
 ---
 
