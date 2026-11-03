@@ -138,6 +138,24 @@ class RealCheckTests(CliBoardCase):
         env = self.json("check", "--peek", as_="w1")
         self.assertEqual((env["data"]["changed"], env["data"]["holding"][0]["key"]), ([], "GAME-1"))
 
+    def test_a_comment_next_or_show_new_printed_is_not_reported_again(self):
+        self.ok("join", "worker", as_="w1")
+        self.ok("join", "reviewer", as_="r1")
+        self.ok("new", "Eye", as_="hector")
+        self.ok("claim", "1", as_="w1")
+        self.ok("review", "1", "-m", "ready", as_="w1")
+        self.ok("next", as_="r1")
+        self.ok("reject", "1", "-m", "fails on reload", as_="r1")
+        out = self.ok("next", as_="w1", hint=True).splitlines()
+        self.assertEqual(out[-3:], ["#2  r1  changes  11-03 10:02", "  fails on reload",
+                                    "· 1 change for you: earmark check"])  # the reject, not the note
+        self.assertEqual(self.ok("check", as_="w1").splitlines()[1:], ["GAME-1  rejected (r1)"])
+        self.ok("comment", "1", "also the hover state", as_="hector")
+        self.assertIn("also the hover state", self.ok("show", "1", "--new", as_="w1"))
+        self.assertTrue(self.ok("check", as_="w1").startswith("check: nothing new"))
+        self.ok("comment", "1", "and the focus ring", as_="hector")
+        self.assertEqual(self.ok("check", as_="w1").splitlines()[1:], ["GAME-1  1 new comment"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -229,6 +229,50 @@ class Feed(BoardCase):
         with self.assertRaises(NotJoined):
             self.open_as("ghost").check()
 
+    def test_comments_read_through_next_are_not_reported_again(self):
+        """`next` prints the unread comments (advancing issue:<id>); check keeps the events."""
+        b, ui, qa = self.board, self.ui, self.qa
+        key = self.issue("feature")["key"]
+        ui.claim(key)
+        ui.submit_review(key, note="ready")
+        ui.check()
+        qa.claim(key)
+        qa.reject(key, note="fails on reload")
+        self.assertEqual(ui.pending_changes(), 1)
+        self.assertEqual(ui.next()["key"], key)  # assigned to it after the reject
+        read = ui.list_comments(key, new=True)["items"]  # what the CLI's `next` prints
+        self.assertEqual([c["body"] for c in read], ["fails on reload"])
+        feed = ui.check(peek=True)
+        item = by_key(feed)[key]
+        self.assertEqual((item["changes"], item["comments"], item["questions"], item["action"]),
+                         ([{"kind": "rejected", "by": "codex-qa"}], 0, 0, True))
+        self.assertPending(feed)
+        ui.check()
+        self.assertEqual(ui.pending_changes(), 0)
+        self.step()
+        b.add_comment(key, "also check the hover state")  # after the read: news again
+        self.assertEqual(by_key(ui.check(peek=True))[key]["comments"], 1)
+        self.assertEqual(ui.pending_changes(), 1)
+
+    def test_comments_read_through_show_new_are_not_reported_again(self):
+        b, ui, qa = self.board, self.ui, self.qa
+        mine = self.issue("mine")["key"]
+        ui.claim(mine)
+        elsewhere = self.issue("not mine")["key"]
+        ui.check()
+        b.add_comment(mine, "use the blue palette")
+        qa.add_comment(elsewhere, "@claude-ui which palette?", kind="question")
+        self.assertEqual(ui.pending_changes(), 2)
+        self.assertEqual(len(ui.list_comments(mine, new=True)["items"]), 1)  # show --new
+        self.assertEqual(set(by_key(ui.check(peek=True))), {elsewhere})
+        self.assertEqual(ui.pending_changes(), 1)
+        ui.list_comments(elsewhere, new=True)  # a mention read on its issue is read too
+        self.assertEqual(ui.check(peek=True)["changed"], [])
+        self.assertEqual(ui.pending_changes(), 0)
+        b.update_issue(mine, priority="high")  # events still count after the read
+        feed = ui.check()
+        self.assertEqual((kinds(by_key(feed)[mine]), by_key(feed)[mine]["comments"]), (["field"], 0))
+
     def test_an_agent_without_a_cursor_starts_now(self):
         legacy = self.agent("legacy")
         with self.board.conn:
