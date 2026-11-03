@@ -30,12 +30,12 @@ CLI. Output is plain text sized for agents; errors print `error:` and a `hint:` 
 
 1. Resolve the CLI once: `earmark` on PATH, else the `earmark` launcher beside this file. Neither:
    ask the user to run `uv tool install git+https://github.com/hec-ovi/earmark-skill`. Never install it yourself.
-2. `earmark info` finds the board. On `no board`, run `earmark init` only if the user asks.
-3. Join once: `earmark join <profile> --cli <claude-code|codex|grok|agy|opencode>`, with the profile
+2. Join once: `earmark join <profile> --cli <claude-code|codex|grok|agy|opencode>`, with the profile
    the user named (`earmark profiles`), else `worker`. Omit `--as` unless the user gave you a handle.
    The briefing prints your handle, role prompt, scope, assigned issues and loop: follow them.
-4. Pass `--as <handle>` on every later command. Each shell call starts clean, so an exported
-   `EARMARK_AS` is gone by the next one and writes fail without it. Lost it: `earmark whoami`.
+   On `no board`, run `earmark init` only if the user asks for one.
+3. Pass `--as <handle>` on every later command. Each shell call starts clean, so an exported
+   `EARMARK_AS` is gone by the next one and writes fail without it. Lost it: `earmark team`.
 
 ## Read in levels
 
@@ -58,10 +58,11 @@ work: the issue you hold names its topic and files.
    back to you first; its `changes` comment is your checklist.
 3. Work that issue alone. At each milestone: `earmark comment KEY "<done, next>" --kind progress`.
    Any write renews your lease (120 min by default); a silent claim goes stale and is taken.
-4. Need a decision: comment `--kind question` with `@<handle>`. Cannot go on at all:
-   `earmark move KEY blocked -m "<blocked by what>"`, then go to 1.
+4. Need a decision: comment `--kind question` with `@<handle>` and go on with what you can.
+   Cannot go on at all: `earmark move KEY blocked -m "<blocked by what>"`, then go to 1.
 5. Done: `earmark review KEY -m "<what changed> · <files> · <how to verify>"`, then go to 1.
-6. Nothing to claim: `earmark next --review` and run the reviewer loop once (never your own work).
+6. Nothing to claim: `earmark next --review` claims someone else's handoff (never yours).
+   Review it as in reviewer steps 2 and 3, then go to 1.
 7. Still exit 4: `earmark inbox`; answer with `earmark comment KEY "..." --reply-to ID`.
 8. Nothing left: stop and report in three lines: done, in review, open or blocked. Only when told
    to stay on duty: `earmark wait --timeout 9m` (allow 10 min for that call), then go to 1.
@@ -71,8 +72,9 @@ work: the issue you hold names its topic and files.
 1. `earmark next --review` claims the next handoff. Exit 4: worker steps 7 and 8.
 2. `earmark comments KEY --new` shows the `handoff` note. Verify exactly what it claims: run its
    tests or steps and read every changed file.
-3. Pass: `earmark approve KEY -m "<what you checked>"`. Fail: `earmark reject KEY -m "<each defect:
-   file:line, expected, actual>"`; it returns to the same worker. Never fix it yourself. Go to 1.
+3. Pass: `earmark approve KEY -m "<what you checked>"`.
+   Fail: `earmark reject KEY -m "<each defect: file:line, expected, actual>"`; it returns to the
+   same worker. Never fix it yourself. Then go to 1.
 
 ## PM loop
 
