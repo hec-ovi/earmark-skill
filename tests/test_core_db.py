@@ -120,6 +120,31 @@ class Connections(TempDir):
         self.assertEqual(pragma("journal_size_limit"), 8388608)
         self.assertIsNone(conn.isolation_level)
 
+    @unittest.skipUnless(db.NO_CKPT_ON_CLOSE is not None, "needs Python 3.12+ (setconfig)")
+    def test_a_solitary_write_leaves_the_wal_for_the_next_process(self):
+        board = self.board()
+        path = board.path
+        board.close()
+        solo = Board.open(db=path, actor="owner")  # the only connection, like one CLI command
+        key = solo.create_issue("last write")["key"]
+        solo.close()
+        self.assertGreater(os.path.getsize(path + "-wal"), 0)  # not checkpointed on close
+        self.assertTrue(os.path.exists(path + "-shm"))
+        copy_dir = os.path.join(self.tmp, "copy", ".earmark")
+        os.makedirs(copy_dir)
+        for suffix in ("", "-wal", "-shm"):  # a board copied with its -wal and -shm
+            shutil.copy(path + suffix, os.path.join(copy_dir, "earmark.db" + suffix))
+        copied = Board.open(db=copy_dir, actor="owner")
+        self.addCleanup(copied.close)
+        self.assertEqual(copied.get_issue(key)["title"], "last write")
+        again = Board.open(db=path, actor="owner")
+        self.addCleanup(again.close)
+        self.assertEqual([c["name"] for c in again.doctor() if not c["ok"]], [])
+        self.assertEqual([i["key"] for i in again.export()["issues"]], [key])
+        copy = again.backup(os.path.join(self.tmp, "bk"))["path"]
+        with sqlite3.connect(copy) as plain:
+            self.assertEqual(plain.execute("SELECT title FROM issues").fetchall(), [("last write",)])
+
     def test_write_commits_and_rolls_back(self):
         board = self.board()
         conn = db.connect(board.path)

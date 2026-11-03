@@ -29,6 +29,13 @@ PRAGMAS = (
     "PRAGMA foreign_keys=ON",
     "PRAGMA journal_size_limit=8388608",
 )
+# A CLI process is often the board's only connection; by default its close checkpoints the WAL
+# into the main file, fsyncs twice and deletes -wal/-shm, doubling the bytes each command
+# writes. Closing without that keeps the WAL for the next process (auto-checkpoint at 1000
+# pages and journal_size_limit still bound it; synchronous=NORMAL already made the last commits
+# before a power cut best-effort). Python 3.10/3.11 have no setconfig and keep the default.
+NO_CKPT_ON_CLOSE = (getattr(sqlite3, "SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE", None)
+                    if hasattr(sqlite3.Connection, "setconfig") else None)
 
 
 # ---- discovery --------------------------------------------------------------------------
@@ -114,6 +121,8 @@ def connect(path: str, *, busy_timeout_ms: int = BUSY_TIMEOUT_MS) -> sqlite3.Con
         conn = sqlite3.connect(path, isolation_level=None, timeout=busy_timeout_ms / 1000,
                                check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        if NO_CKPT_ON_CLOSE is not None:  # Python 3.12+
+            conn.setconfig(NO_CKPT_ON_CLOSE, True)
         conn.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
         for pragma in PRAGMAS:
             conn.execute(pragma)
@@ -267,7 +276,11 @@ def create(path: str, populate: Callable[[sqlite3.Connection], None] | None = No
                 _apply_migrations(conn, 0, SCHEMA_VERSION)
                 if populate is not None:
                     populate(conn)
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")  # every page in the main file
+            # every page in the main file: the temporary -wal is not published with it (and
+            # with NO_CKPT_ON_CLOSE, closing would not checkpoint it either)
+            busy, _log, _done = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            if busy:
+                raise Busy(f"could not finish {path}; try again", hint="earmark init")
         finally:
             conn.close()
         _publish(temp, path)
