@@ -279,7 +279,7 @@ function comparator(sort) {
   return sort.desc ? (a, b) => by(b, a) : by;
 }
 
-export const LIST_LIMIT = 300;
+export const LIST_LIMIT = 1000;
 
 /** Query parameters for the current scope, filters and sort (mirrors `earmark ls`). */
 export function issueQueries(route = state.base) {
