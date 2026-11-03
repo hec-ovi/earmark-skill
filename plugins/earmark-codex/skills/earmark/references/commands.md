@@ -156,7 +156,11 @@ have not seen, so starting an issue is one call. `review`, `approve`, `reject`, 
 `· N changes for you: earmark check` (`· 1 change for you` for one) when your check feed has
 something;
 `--json` puts the count in `meta.changes`. With nothing to claim (exit 4):
-`next: nothing ready in your scope · review queue: 3 · inbox: 2 new · stale: 0`.
+`next: nothing ready for you · reviews for you: 3 · changes for you: 2 · stale: 0`, and for
+`next --review`
+`next: nothing to review for you (your own handoffs excluded) · changes for you: 2`.
+`reviews for you` is what `next --review` could claim, `changes for you` is what `check` would
+list (the count of the hint line), `stale` the lapsed claims in your scope.
 
 ## Write
 
