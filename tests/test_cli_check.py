@@ -21,10 +21,11 @@ SINCE = "2026-11-03T14:05:09Z"
 HOLDING = [{"key": "GAME-1", "lease_until": "2026-11-03T15:45:09Z", "lease_left_min": 100}]
 
 
-def item(key, *changes, priority="medium", blocks_open=0, comments=0, questions=0, files=0):
+def item(key, *changes, priority="medium", blocks_open=0, comments=0, questions=0, mentions=0,
+         files=0):
     return {"key": key, "priority": priority, "effective_priority": priority, "blocks_open": blocks_open,
             "action": None, "changes": list(changes), "comments": comments, "questions": questions,
-            "files": files}
+            "mentions": mentions, "files": files}
 
 
 def feed(changed=(), todo=9, more=0, holding=HOLDING, since=SINCE, waiting=0, reviews=0,
@@ -37,7 +38,7 @@ def feed(changed=(), todo=9, more=0, holding=HOLDING, since=SINCE, waiting=0, re
 SAMPLE = feed([
     item("GAME-77", {"kind": "assigned", "by": "grok-pm"}, priority="high", blocks_open=1),
     item("GAME-3", {"kind": "rejected", "by": "codex-review"}, comments=2),
-    item("GAME-1", comments=1, questions=1, files=1),
+    item("GAME-1", comments=2, questions=1, mentions=1, files=1),
     item("GAME-12", {"kind": "unblocked", "by": "codex-art", "by_issue": "GAME-31",
                      "old": "GAME-31 done", "new": "todo"}),
     item("GAME-9", {"kind": "field", "field": "priority", "old": "medium", "new": "high", "by": "grok-pm"},
@@ -80,6 +81,11 @@ class CheckRenderTests(unittest.TestCase):
         self.assertEqual(R.check_parts(item("GAME-1", comments=2, questions=2)),
                          ["2 new comments, 2 questions for you"])
         self.assertEqual(R.check_parts(item("GAME-1", questions=1)), ["question for you"])
+        self.assertEqual(R.check_parts(item("GAME-1", comments=1, mentions=1)),
+                         ["1 new comment, mentions you"])
+        self.assertEqual(R.check_parts(item("GAME-1", comments=4, questions=1, mentions=2)),
+                         ["4 new comments, question for you, 2 mention you"])
+        self.assertEqual(R.check_parts(item("GAME-1", mentions=1)), ["mentions you"])
         self.assertEqual(R.check_parts(item("GAME-1", {"kind": "assigned", "by": "pm"}, priority="low")),
                          ["new for you (assigned by pm)", "low"])
 

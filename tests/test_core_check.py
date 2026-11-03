@@ -13,7 +13,7 @@ from earmark.errors import IdentityRequired, NotJoined
 CHECK_KEYS = {"agent", "role", "since", "holding", "ready_for_you", "waiting_on_blockers",
               "reviews_waiting", "todo_for_you", "changed", "more", "cursor"}
 CHANGED_KEYS = {"key", "priority", "effective_priority", "blocks_open", "action", "changes",
-                "comments", "questions", "files"}
+                "comments", "questions", "mentions", "files"}
 
 
 def by_key(feed: dict) -> dict:
@@ -81,14 +81,40 @@ class Feed(BoardCase):
             {"kind": "field", "field": "title", "by": "grok-pm"},
             {"kind": "field", "field": "body", "by": "grok-pm"},
             {"kind": "field", "field": "priority", "old": "medium", "new": "high", "by": "grok-pm"}])
-        self.assertEqual((w["comments"], w["questions"], w["files"], w["action"]), (2, 1, 1, True))
+        self.assertEqual((w["comments"], w["questions"], w["mentions"], w["files"], w["action"]),
+                         (2, 1, 0, 1, True))
         a = items[assets]
         self.assertEqual((a["priority"], a["effective_priority"], a["blocks_open"]), ("low", "urgent", 1))
         self.assertIn({"kind": "assigned", "by": "grok-pm"}, a["changes"])
         self.assertTrue(a["action"])
         e = items[elsewhere]
-        self.assertEqual((e["changes"], e["comments"], e["questions"], e["action"]), ([], 1, 1, True))
+        self.assertEqual((e["changes"], e["comments"], e["questions"], e["mentions"], e["action"]),
+                         ([], 1, 0, 1, True))  # a note that @mentions it: not a question
         self.assertPending(feed)
+
+    def test_a_question_is_for_whom_it_names(self):
+        """Live-test repros: a note @mentioning the agent printed `question for you`, and pm-1's
+        question to @owner on the artist's SHOP-8 reached the artist as a question for it."""
+        b, ui, pm, qa = self.board, self.ui, self.pm, self.qa
+        mine = self.issue("hero art")["key"]
+        b.assign(mine, "claude-ui")
+        elsewhere = self.issue("not mine")["key"]
+        ui.check()
+        pm.add_comment(mine, "@owner no art-profile agent on the board yet?", kind="question")
+        pm.add_comment(mine, "fyi @claude-ui the palette moved", kind="note")
+        qa.add_comment(mine, "which size?", kind="question")  # names nobody: for its assignee
+        qa.add_comment(elsewhere, "@claude-ui @owner thoughts?", kind="question")
+        qa.add_comment(elsewhere, "cc @claude-ui", kind="progress")
+        items = by_key(ui.check(peek=True))
+        self.assertEqual({k: (v["comments"], v["questions"], v["mentions"]) for k, v in items.items()},
+                         {mine: (3, 1, 1), elsewhere: (2, 1, 1)})
+        only = self.issue("for the owner")["key"]
+        b.assign(only, "claude-ui")
+        ui.check()
+        pm.add_comment(only, "@owner can we cut this?", kind="question")
+        item = by_key(ui.check())[only]
+        self.assertEqual((item["comments"], item["questions"], item["mentions"], item["action"]),
+                         (1, 0, 0, False))
 
     def test_review_round_trip_unblock_and_cap(self):
         b, ui, qa = self.board, self.ui, self.qa
