@@ -203,16 +203,19 @@ check: nothing new since 14:05:09Z · holding GAME-1 (lease 1h40m) · todo for y
 
 ```
 check: since 14:05:09Z · holding GAME-1 (lease 1h40m) · todo for you: 10
-new: GAME-77 high blocks:1 (assigned by grok-pm)
-changed: GAME-9 priority medium→high (grok-pm) · GAME-12 unblocked (GAME-31 done) · GAME-3 rejected (codex-review)
-comments: GAME-3 #1201 codex-review changes "Thumbnails still load one by one on…" · GAME-1 #1203 agy-art question @you "Which eye shapes…"
-files: GAME-1 @14 eye-icons.png image (agy-art)
+GAME-77  new for you (assigned by grok-pm) · high · blocks:1
+GAME-3   rejected (codex-review) · 2 new comments
+GAME-1   1 new comment, question for you · 1 new file
+GAME-12  unblocked (GAME-31 done)
+GAME-9   priority medium→high · title changed
 ```
 
-Each line lists at most 5 items, most urgent first, then `+N more`. Bodies are never printed in
-full: read them with `earmark comments KEY --new` and `earmark attachments KEY`. The first check
-after `join` covers changes since the join. A lease under 15 minutes prints
-`(lease 12m, comment to renew)`.
+One line per issue that changed, issues that need you first (new for you, a question for you,
+rejected, unblocked), then by priority; at most 10 lines, then `+N more`. Status and priority
+show `old→new`; other fields only say `<field> changed`; comments and files are counts. Nothing
+is printed in full: open what matters with `earmark show KEY -f <fields>,comments --new` or
+`earmark attachments KEY`. Only changes made by others count. The first check after `join`
+covers changes since the join. A lease under 15 minutes prints `(lease 12m, comment to renew)`.
 
 ```
 HANDLE      ROLE      PROFILE   CLI          SEEN  STATE   WORKING
