@@ -195,7 +195,7 @@ class BodyTest(unittest.TestCase):
     def test_standing_rules(self):
         for needle in ("--as <handle>", "uv tool install git+https://github.com/hec-ovi/earmark-skill",
                        "Never install it yourself", "--kind progress", "earmark next --review",
-                       "earmark wait --timeout 9m", "earmark leave", "three lines"):
+                       "earmark wait --timeout 2m", "earmark leave", "three lines"):
             self.assertIn(needle, self.body)
 
     def test_references_resolve_one_level_deep(self):

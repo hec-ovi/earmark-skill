@@ -44,7 +44,7 @@ is plain text sized for agents; errors print `error:` and a `hint:` to run next.
 |---|---|
 | Start work: claim, the issue, its unseen comments | `earmark next` |
 | What changed for you, one line per issue | `earmark check` |
-| Just some fields or parts, several issues at once | `earmark show KEY [KEY…] -f status,title` · `-f comments --new` · `-f attachments` |
+| Just some fields or parts, several issues at once | `earmark show KEY [KEY…] -f status,title` · `-f comments --new` · `-f links` · `-f attachments` |
 | Files (images, audio, logs) | `earmark attachments KEY`, then open the printed paths with your own tools |
 | One area, rarely | `earmark topics PATH --depth 2` · `earmark ls -t PATH --ready` |
 
@@ -60,6 +60,9 @@ new session the unseen comments are enough: your cursor marks what you read befo
 3. Needs something only another specialist makes (an image, audio, copy):
    `earmark need KEY "<short title>" -t <topic> -b "<format, size, where it goes>" [--assign <handle>]`.
    KEY is parked and returns to your `next` when that issue is done; go to 1.
+   Waits on an issue that already exists: `earmark link KEY2 blocks KEY`, then
+   `earmark move KEY blocked -m "waiting on KEY2"`; it returns to you when KEY2 is done. Linking
+   another agent's issue is fine; it does not touch their work.
    Needs a decision: `earmark comment KEY "<question>" --kind question` with `@<handle>`; go on with
    what you can. Blocked by something outside the board: `earmark move KEY blocked -m "<what>"`.
 4. Done: deliverables first (`earmark attach KEY FILE…`), then
@@ -70,7 +73,8 @@ new session the unseen comments are enough: your cursor marks what you read befo
 6. `earmark next --review` claims someone else's handoff (never yours); review it as below.
 7. Still exit 4: `earmark check` and handle what needs you (questions, rejections).
 8. Nothing left: `earmark leave`, then report in three lines: done, in review, open or blocked.
-   Only when told to stay on duty: `earmark wait --timeout 9m` (allow 10 min), then go to 1.
+   Only when told to stay on duty: `earmark wait --timeout 2m` (it fits every agent shell's command
+   limit), then go to 1; it also returns when the board has no open issues.
 
 ## Reviewer loop
 
