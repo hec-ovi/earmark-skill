@@ -19,7 +19,8 @@ SKILL = SKILL_DIR / "SKILL.md"
 COMMANDS = SKILL_DIR / "references" / "commands.md"
 PROFILES = ROOT / "src" / "earmark" / "profiles"
 ROLES = ("worker", "reviewer", "pm")
-VERSION = "0.1.0"
+# The package version is the one source; every manifest and the skill must match it.
+VERSION = re.search(r'__version__ = "([^"]+)"', (ROOT / "src" / "earmark" / "__init__.py").read_text()).group(1)
 
 SPEC_KEYS = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
 BODY_MAX_LINES = 100          # target 60-90; the spec ceiling is 500
