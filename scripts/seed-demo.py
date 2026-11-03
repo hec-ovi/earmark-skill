@@ -15,10 +15,15 @@ due and overdue dates all read correctly when you open the board right after see
 from __future__ import annotations
 
 import argparse
+import io
+import math
 import os
 import random
 import shutil
+import struct
 import sys
+import wave
+import zlib
 from datetime import datetime, timedelta, timezone
 from textwrap import dedent
 
@@ -719,6 +724,83 @@ ISSUES: dict[str, dict] = {
 }
 
 
+# ---- attachments: small generated files, the same bytes on every run -------------------------
+
+def png(width: int, height: int, pixel) -> bytes:
+    """An RGB PNG; pixel(x, y) -> (r, g, b)."""
+    rows = b"".join(b"\x00" + bytes(c for x in range(width) for c in pixel(x, y)) for y in range(height))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
+
+
+def screenshot(width: int, height: int, accent: tuple[int, int, int]) -> bytes:
+    """A dark game frame: sky gradient, a HUD bar along the bottom, an accent box top left."""
+    def pixel(x: int, y: int) -> tuple[int, int, int]:
+        if y >= height - height // 6:
+            return (24, 26, 32) if (x // 6) % 8 else (60, 64, 72)
+        if x < width // 4 and y < height // 4:
+            return accent
+        shade = 40 + 80 * y // height
+        return (shade // 2, shade // 2 + 10, shade + 30)
+
+    return png(width, height, pixel)
+
+
+def swatches(colors: list[tuple[int, int, int]], size: int = 12) -> bytes:
+    """A contact sheet: one square per color."""
+    return png(size * len(colors), size, lambda x, y: colors[x // size])
+
+
+def wav(seconds: float, freq: float, rate: int = 22050) -> bytes:
+    """A mono 16-bit tone with a fade in and out."""
+    frames = int(seconds * rate)
+    fade = max(1, frames // 8)
+    samples = bytearray()
+    for n in range(frames):
+        envelope = min(1.0, n / fade, (frames - n) / fade)
+        samples += struct.pack("<h", int(12000 * envelope * math.sin(2 * math.pi * freq * n / rate)))
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(rate)
+        out.writeframes(bytes(samples))
+    return buf.getvalue()
+
+
+ICON_COLORS = [(214, 69, 65), (241, 169, 59), (88, 178, 100), (70, 130, 200), (156, 98, 196),
+               (230, 230, 230), (40, 40, 40), (200, 120, 80)]
+
+FILES = {
+    "silhouettes-64px.png": lambda: swatches([(30, 30, 30), (240, 240, 240)] * 4, 16),
+    "colorblind-filters-16x9.png": lambda: screenshot(96, 54, (230, 159, 0)),
+    "ui-click-v2.wav": lambda: wav(0.25, 1320),
+    "profile-load.log": lambda: (
+        "12:04:01.118 profile-loader start slot=2\n"
+        "12:04:01.120 eye-color-widget read selection=None (profile not ready)\n"
+        "12:04:01.121 eye-color-widget write default=hazel\n"
+        "12:04:01.402 profile-loader ready slot=2 eye_color=#5b8fd6\n").encode(),
+    "broken-save-hazel.json": lambda: (
+        '{"slot": 2, "build": "0.9.3-beta", "character": {"eye_color": "hazel", '
+        '"material": {"iris": "#5b8fd6"}}}\n').encode(),
+    "crash-report-scrubbed.log": lambda: (
+        "exception: AccessViolation at 0x00007ff6a1c2\n"
+        "module: game.exe\n"
+        "path: <user>/AppData/Local/Game/saves/slot2.sav\n"
+        "command line: game.exe -profile <redacted>\n").encode(),
+    "hud-ammo-21x9.png": lambda: screenshot(126, 54, (200, 60, 60)),
+    "hud-ammo-32x9.png": lambda: screenshot(192, 54, (200, 60, 60)),
+    "hud-spectator.png": lambda: screenshot(96, 54, (90, 160, 220)),
+    "icon-contact-sheet.png": lambda: swatches(ICON_COLORS),
+    "threat-layer-stinger.wav": lambda: wav(0.6, 220),
+}
+
+
 class SimClock:
     """Forward-only simulated time for timeutil.set_clock()."""
 
@@ -745,6 +827,7 @@ class Seeder:
         self.now = now
         self.keys: dict[str, str] = {}
         self.comments = 0
+        self.attachments = 0
         self.pace = (2, 9)  # minutes between two writes
 
     # ---- time and identity --------------------------------------------------------------
@@ -792,6 +875,12 @@ class Seeder:
             body = body.replace(f"<{name}>", key)
         return body
 
+    def attach(self, alias: str, who: str, names: list[str], comment: int | None = None) -> None:
+        """Attach generated files (FILES) as `who`, to the issue or to one of its comments."""
+        files = [(name, io.BytesIO(FILES[name]())) for name in names]
+        self.act(who).attach(self.k(alias), files, comment=comment)
+        self.attachments += len(files)
+
     def claim(self, alias: str, who: str) -> None:
         self.act(who).claim(self.k(alias))
 
@@ -811,11 +900,13 @@ class Seeder:
         return self.last_comment_id()
 
     def ship(self, alias: str, worker: str, progress: str, handoff: str, approval: str,
-             reviewer: str = "codex-review") -> None:
-        """Claim → progress → handoff → review claim → approval: a clean path to done."""
+             reviewer: str = "codex-review", files: list[str] = ()) -> None:
+        """Claim → progress → handoff (with files) → review claim → approval: a clean path to done."""
         self.claim(alias, worker)
         self.say(alias, worker, progress, kind="progress")
-        self.handoff(alias, worker, handoff)
+        handed = self.handoff(alias, worker, handoff)
+        if files:
+            self.attach(alias, worker, list(files), comment=handed)
         self.claim(alias, reviewer)
         self.approve(alias, reviewer, approval)
 
@@ -884,7 +975,8 @@ class Seeder:
                   "Warden and Ranger sheets are done; Arcanist needs a second pass on the hood silhouette.",
                   "All four sheets are in the art share under concept/classes. Silhouette test at 64 px "
                   "attached as one image. Accent colors are from the bible's class row.",
-                  "Checked the 64 px silhouettes and the layered sources. Approved.")
+                  "Checked the 64 px silhouettes and the layered sources. Approved.",
+                  files=["silhouettes-64px.png"])
         self.ship("P6", "codex-api",
                   "Limiter in place behind a config flag; load test on staging next.",
                   "Per-IP 10/min and per-account 5/min with Retry-After. Limits live in the service "
@@ -901,7 +993,8 @@ class Seeder:
                   "Filters done as a post-process pass; preview image wired into the settings screen.",
                   "Three filters plus Off, with intensity. Verified team colors with the simulator "
                   "for all three filters; screenshots at 16:9 and 21:9 attached.",
-                  "Checked all three filters in a match and the settings preview. Team colors hold up. Approved.")
+                  "Checked all three filters in a match and the settings preview. Team colors hold up. Approved.",
+                  files=["colorblind-filters-16x9.png"])
         self.ship("E5", "codex-api",
                   "Permutation list generated from the last playtest's shader log.",
                   "The 1,240 most common permutations compile behind the intro video. First-match "
@@ -925,14 +1018,16 @@ class Seeder:
         self.ship("S4", "opencode-audio",
                   "UI bus brought down 7 dB; music bus unchanged.",
                   "Clicks now sit 6 dB under the menu music. Tested on speakers and headphones.",
-                  "Sounds right in the menus. Approved.", reviewer="codex-review")
+                  "Sounds right in the menus. Approved.", reviewer="codex-review",
+                  files=["ui-click-v2.wav"])
 
         # The review cycle on the eye color regression: handoff, changes, handoff, approval.
         self.at(days=5, hours=4)
         self.claim("U2", "claude-ui")
-        self.say("U2", "claude-ui", "Root cause: the widget reads the palette selection before the "
-                                    "profile loader resolves, then writes the default back. Fix: "
-                                    "subscribe to the profile-ready event.", kind="progress")
+        cause = self.say("U2", "claude-ui", "Root cause: the widget reads the palette selection before "
+                                            "the profile loader resolves, then writes the default back. "
+                                            "Fix: subscribe to the profile-ready event.", kind="progress")
+        self.attach("U2", "claude-ui", ["profile-load.log"], comment=cause)
         h1 = self.handoff("U2", "claude-ui",
                           "Widget waits for profile-ready before reading the selection. Verify: "
                           "throttle disk reads to HDD speed, pick a custom color, save, reload.")
@@ -954,9 +1049,11 @@ class Seeder:
                                     "the color from the material when the save says hazel but the "
                                     "material differs; runs once per save, flagged.", kind="progress",
                  reply_to=h1)
-        self.handoff("U2", "claude-ui",
-                     "Both review points addressed. Verify: (1) switch profiles back and forth, color "
-                     "stays; (2) load the attached broken save, the custom color comes back once.")
+        fixed = self.handoff("U2", "claude-ui",
+                             "Both review points addressed. Verify: (1) switch profiles back and forth, "
+                             "color stays; (2) load the attached broken save, the custom color comes "
+                             "back once.")
+        self.attach("U2", "claude-ui", ["broken-save-hazel.json"], comment=fixed)
         self.claim("U2", "codex-review")
         self.approve("U2", "codex-review",
                      "Verified both paths, including running the migration twice on the same save. Approved.")
@@ -971,8 +1068,10 @@ class Seeder:
                                         note="Waiting on the composer's 48 kHz delivery, promised for Monday.")
         self.comments += 1
         self.claim("I3", "codex-api")
-        self.say("I3", "codex-api", "Client-side scrubbing done for paths and the command line; "
-                                    "tests cover Windows, Linux and Steam Deck paths.", kind="progress")
+        scrubbed = self.say("I3", "codex-api", "Client-side scrubbing done for paths and the command "
+                                               "line; tests cover Windows, Linux and Steam Deck paths.",
+                            kind="progress")
+        self.attach("I3", "codex-api", ["crash-report-scrubbed.log"], comment=scrubbed)
         self.act("codex-api").move(self.k("I3"), "blocked", note="Code is ready; blocked on legal "
                                                                  "sign-off of the updated data map.")
         self.comments += 1
@@ -1011,15 +1110,18 @@ class Seeder:
         self.claim("A3", "agy-art")
         self.say("A3", "agy-art", "28 of 40 redrawn; the potion family needed new silhouettes.",
                  kind="progress")
-        self.handoff("A3", "agy-art", "All 40 icons at 48 px and 24 px, 2 px stroke, pixel-snapped. "
-                                      "Contact sheet on light and dark backgrounds attached.")
+        sheet = self.handoff("A3", "agy-art", "All 40 icons at 48 px and 24 px, 2 px stroke, "
+                                              "pixel-snapped. Contact sheet on light and dark "
+                                              "backgrounds attached.")
+        self.attach("A3", "agy-art", ["icon-contact-sheet.png"], comment=sheet)
         self.claim("M1", "opencode-audio")
         self.say("M1", "opencode-audio", "Four layers authored; transitions quantized to the bar.",
                  kind="progress")
-        self.handoff("M1", "opencode-audio",
-                     "Threat level 0–3 drives four layers with 2-bar crossfades; level changes are "
-                     "smoothed to at most one per 4 s. Exposed as `music.threat_layers` in the encounter "
-                     "editor. Verify in the arena test map.")
+        layers = self.handoff("M1", "opencode-audio",
+                              "Threat level 0–3 drives four layers with 2-bar crossfades; level changes "
+                              "are smoothed to at most one per 4 s. Exposed as `music.threat_layers` in "
+                              "the encounter editor. Verify in the arena test map.")
+        self.attach("M1", "opencode-audio", ["threat-layer-stinger.wav"], comment=layers)
         self.say("M1", pm, "@opencode-audio does this need anything from design before review?",
                  kind="question")
         self.say("M1", "opencode-audio", "No, designers can tune it after the merge. Default curve "
@@ -1054,8 +1156,9 @@ class Seeder:
         self.claim("U8", "claude-ui")
         self.say("U8", "claude-ui", "Ammo counter now anchors to the minimap's left edge instead of "
                                     "the 16:9 safe area.", kind="progress")
-        self.handoff("U8", "claude-ui", "Anchoring fixed. Screenshots at 16:9, 16:10, 21:9 and 32:9, "
-                                        "UI scale 80 % and 150 %, attached.")
+        hud = self.handoff("U8", "claude-ui", "Anchoring fixed. Screenshots at 16:9, 16:10, 21:9 and "
+                                              "32:9, UI scale 80 % and 150 %, attached.")
+        self.attach("U8", "claude-ui", ["hud-ammo-21x9.png", "hud-ammo-32x9.png"], comment=hud)
         self.claim("U3", "claude-ui")
         self.say("U3", "claude-ui", "Decoding moved off the main thread. @agy-art can you export the "
                                     "hair thumbnails as one 256 px atlas? That removes 47 file reads.",
@@ -1067,8 +1170,9 @@ class Seeder:
         self.claim("U8", "codex-review")
         q = self.say("U8", "codex-review", "@claude-ui does the fix also cover the spectator HUD? It "
                                            "uses the same corner.", kind="question")
-        self.say("U8", "claude-ui", "It does, same anchor component. Added a spectator screenshot.",
-                 reply_to=q)
+        spectator = self.say("U8", "claude-ui", "It does, same anchor component. Added a spectator "
+                                                "screenshot.", reply_to=q)
+        self.attach("U8", "claude-ui", ["hud-spectator.png"], comment=spectator)
         self.say("A2", pm, "@agy-art the lease on this ran out hours ago. Still on it? "
                            "Otherwise I will put it back in the queue.", kind="question")
         self.say("S2", pm, "@opencode-audio this is due in three days and affects the tutorial "
@@ -1141,7 +1245,8 @@ def main(argv: list[str] | None = None) -> int:
         timeutil.reset_clock()
 
     print(f"seeded {PREFIX} demo board: {len(seeder.keys)} issues, {len(TOPICS)} topics, "
-          f"{len(PROFILES)} profiles, {len(AGENTS)} agents, {seeder.comments} comments")
+          f"{len(PROFILES)} profiles, {len(AGENTS)} agents, {seeder.comments} comments, "
+          f"{seeder.attachments} attachments")
     print(f"board: {path}")
     print(f"open:  earmark ui --db {path}")
     return 0

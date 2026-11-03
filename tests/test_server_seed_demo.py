@@ -158,11 +158,34 @@ class SeedDemoTests(unittest.TestCase):
             b = Board.open(db=path)
             try:
                 items = b.list_issues(status="all", limit=500)["items"]
-                return [(i["key"], i["title"], i["status"], i["assignee"], i["comment_count"]) for i in items]
+                files = [(a["issue"], a["name"], a["sha256"]) for a in b.export()["attachments"]]
+                return [(i["key"], i["title"], i["status"], i["assignee"], i["comment_count"])
+                        for i in items], files
             finally:
                 b.close()
 
         self.assertEqual(snapshot(os.path.join(tmp, ".earmark", "earmark.db")), snapshot(self.db))
+
+    def test_attachments(self):
+        import hashlib
+
+        b = self.board()
+        rows = b.export()["attachments"]
+        self.assertGreaterEqual(len(rows), 8)
+        self.assertTrue({"image", "audio", "text"} <= {a["kind"] for a in rows})
+        self.assertTrue(all(a["comment_id"] for a in rows))
+        for a in rows:
+            with open(a["path"], "rb") as fh:
+                data = fh.read()
+            self.assertEqual(hashlib.sha256(data).hexdigest(), a["sha256"], a["name"])
+            if a["kind"] == "image":
+                self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"), a["name"])
+            if a["kind"] == "audio":
+                self.assertEqual((data[:4], data[8:12]), (b"RIFF", b"WAVE"), a["name"])
+        hud = b.get_issue("GAME-8")
+        self.assertEqual(hud["attachment_count"], 3)
+        checks = {c["name"]: c["ok"] for c in b.doctor()}
+        self.assertTrue(checks["attachments"] and checks["unreferenced_files"])
 
     def test_served(self):
         h = ServerHarness(self.db)
