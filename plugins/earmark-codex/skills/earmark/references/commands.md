@@ -234,7 +234,7 @@ check: nothing new since 14:05:09Z · holding GAME-1 (lease 1h40m) · ready for 
 check: since 14:05:09Z · holding GAME-1 (lease 1h40m) · ready for you: 10 · 1 waiting on blockers
 GAME-77  new for you (assigned by grok-pm) · high · blocks:1
 GAME-3   rejected (codex-review) · 2 new comments
-GAME-1   1 new comment, question for you · 1 new file
+GAME-1   2 new comments, question for you, mentions you · 1 new file
 GAME-12  unblocked (GAME-31 done)
 GAME-9   priority medium→high · title changed
 ```
@@ -248,7 +248,9 @@ assigned issues wait on open blockers, `M waiting on blockers`; a reviewer's hea
 
 One line per issue that changed, issues that need you first (new for you, a question for you,
 rejected, unblocked), then by priority; at most 10 lines, then `+N more`. Status and priority
-show `old→new`; other fields only say `<field> changed`; comments and files are counts. Nothing
+show `old→new`; other fields only say `<field> changed`; comments and files are counts. A
+`question for you` is a `question` that @mentions you or, mentioning nobody, sits on an issue
+you are assignee or reviewer of; other comments that @mention you print `mentions you`. Nothing
 is printed in full: open what matters with `earmark show KEY -f <fields>,comments --new` or
 `earmark attachments KEY`. Only changes made by others count, and on each issue only those
 newer than your own last write there (a claim, comment, review, move or edit), so what `next`
