@@ -1211,6 +1211,8 @@ def render_wait(hit: Any) -> str:
     """What arrived, and the command that takes it (`wait: changes · 2 for you: earmark check`)."""
     if not isinstance(hit, dict):
         return f"wait: {dash(hit)}"
+    if hit.get("reason") == "board":  # nothing open on the whole board: time to stop
+        return f"wait: board{SEP}no open issues"
     reason = hit.get("reason") or "something arrived"
     parts = [f"wait: {reason}"]
     issue = hit.get("issue") if isinstance(hit.get("issue"), dict) else None
