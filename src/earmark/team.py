@@ -13,6 +13,8 @@ from earmark.service import Tx
 
 PROFILE_FIELDS = ("name", "role", "icon", "prompt", "topics")
 TRIAGE_LIMIT = 100
+WAIT_MODES = ("work", "review", "changes", "any")
+WAIT_ALIASES = {"inbox": "changes"}  # wait woke on unread inbox comments before the check feed
 
 # ---- check: the per-agent change feed (cursor scope 'check': last event id, last comment id) --
 # Only writes by others count, after the cursor (and, for `check`, up to the heads read at its
@@ -575,21 +577,28 @@ class TeamMixin:
                 (me, heads["comment_id"], heads["event_id"], ts))
 
     def wait_check(self, mode: str) -> dict | None:
-        """mode work|review|inbox|any. Read-only. Returns {reason, ...} when something is
-        available for the actor, else None. `earmark wait` calls it after data_version moves."""
+        """mode work|review|changes|any (inbox: an alias of changes). Read-only. Returns
+        {reason, ...} when something is available for the actor, else None: {reason: changes,
+        count} when its check feed is not empty (pending_changes), {reason: work|review, key,
+        title} when `next` would claim something. any = changes, or the role's own mode (review
+        for reviewers, work otherwise). The feed, not the inbox: once `check` has moved its
+        cursor, a wait blocks until something new arrives. `earmark wait` calls it after
+        data_version moves."""
         mode = str(mode or "any").strip().lower()
-        if mode not in ("work", "review", "inbox", "any"):
-            raise InvalidRequest(f"invalid wait mode {mode!r}; use work, review, inbox or any")
+        mode = WAIT_ALIASES.get(mode, mode)
+        if mode not in WAIT_MODES:
+            raise InvalidRequest(f"invalid wait mode {mode!r}; use work, review, changes or any")
         self._need_actor()
         with self._read() as conn:
             agent = self._actor_row(conn)
-            if mode in ("inbox", "any"):
-                count = self._inbox_count(conn, agent["handle"])
+            if mode in ("changes", "any"):
+                count = self.pending_changes()
                 if count:
-                    return {"reason": "inbox", "count": count}
-            for kind in ("work", "review"):
-                if mode in (kind, "any"):
-                    _, row = self._pick(conn, agent, kind == "review", [], timeutil.now_iso())
-                    if row is not None:
-                        return {"reason": kind, "key": self._key(row["id"]), "title": row["title"]}
+                    return {"reason": "changes", "count": count}
+                if mode == "changes":
+                    return None
+                mode = "review" if agent["role"] == "reviewer" else "work"
+            _, row = self._pick(conn, agent, mode == "review", [], timeutil.now_iso())
+            if row is not None:
+                return {"reason": mode, "key": self._key(row["id"]), "title": row["title"]}
         return None
