@@ -186,6 +186,7 @@ class TeamMixin:
                             (tx.ts, tx.actor))
             self._event(tx, None, "leave", None, ",".join(returned) or None)
             agent = views.agents(tx.conn, self.prefix, [self._actor_row(tx.conn)], tx.now)[0]
+        self._seen_checked = None  # offline now: the next command by this agent brings it back
         return {"agent": agent, "returned": returned}
 
     def _return_work(self, tx: Tx) -> list[str]:
@@ -223,25 +224,29 @@ class TeamMixin:
     # ---- triage, wait -------------------------------------------------------------------
 
     def triage(self, *, limit: int = TRIAGE_LIMIT) -> dict:
-        """PM view: {backlog, unassigned, stale, review_queue, review_since, blocked, overdue,
-        idle_agents, counts}. Lists hold IssueSummary (Agent for idle_agents), at most `limit`
-        each; counts are the totals. idle_agents: online agents (not the human owner, not pms)
-        working and reviewing nothing."""
+        """PM view: {backlog, unassigned, offline, stale, review_queue, review_since, blocked,
+        overdue, idle_agents, counts}. Lists hold IssueSummary (Agent for idle_agents), at most
+        `limit` each, most urgent (effective priority) first; counts are the totals. offline:
+        open work assigned to agents that have left (anyone in scope may claim it).
+        idle_agents: online agents (not the human owner, not pms) working and reviewing nothing."""
         limit = int(limit)
         if limit < 1:
             raise InvalidRequest("limit must be at least 1")
         now = timeutil.now()
         now_ts = timeutil.iso(now)
         today = now.date().isoformat()
+        urgent = f"{views.EFFECTIVE_PRIORITY}, i.rank, i.id"
         queries = {
-            "backlog": ("i.status = 'backlog'", [], "i.priority, i.rank, i.id"),
-            "unassigned": ("i.status = 'todo' AND i.assignee IS NULL", [], "i.priority, i.rank, i.id"),
+            "backlog": ("i.status = 'backlog'", [], urgent),
+            "unassigned": ("i.status = 'todo' AND i.assignee IS NULL", [], urgent),
+            "offline": ("i.status IN ('todo', 'blocked', 'in_progress') AND i.assignee IN "
+                        "(SELECT handle FROM agents WHERE online = 0)", [], urgent),
             "stale": (views.stale_sql(), [now_ts], "i.lease_until, i.id"),
             "review_queue": ("i.status = 'in_review' AND (i.reviewer IS NULL OR "
                              "(i.lease_until IS NOT NULL AND i.lease_until < ?))", [now_ts],
                              "i.review_requested_at, i.id"),
             "blocked": (f"i.status NOT IN ('done', 'canceled') AND (i.status = 'blocked' OR "
-                        f"EXISTS ({views.OPEN_BLOCKER}))", [], "i.priority, i.rank, i.id"),
+                        f"EXISTS ({views.OPEN_BLOCKER}))", [], urgent),
             "overdue": ("i.status NOT IN ('done', 'canceled') AND i.due_at IS NOT NULL AND "
                         "i.due_at < ?", [today], "i.due_at, i.priority, i.id"),
         }
@@ -281,7 +286,7 @@ class TeamMixin:
                     return {"reason": "inbox", "count": count}
             for kind in ("work", "review"):
                 if mode in (kind, "any"):
-                    _, row = self._pick(conn, agent, kind == "review", [])
+                    _, row = self._pick(conn, agent, kind == "review", [], timeutil.now_iso())
                     if row is not None:
                         return {"reason": kind, "key": self._key(row["id"]), "title": row["title"]}
         return None

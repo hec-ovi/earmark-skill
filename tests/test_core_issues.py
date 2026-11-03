@@ -8,12 +8,13 @@ from tests.support import BoardCase
 
 from earmark.errors import Conflict, Forbidden, IdentityRequired, InvalidRequest, NotFound
 
-SUMMARY_KEYS = {"key", "id", "title", "status", "priority", "type", "topic", "assignee", "reviewer",
-                "reporter", "labels", "due", "parent", "children", "blocked", "stale",
+SUMMARY_KEYS = {"key", "id", "title", "status", "priority", "effective_priority", "type", "topic",
+                "assignee", "reviewer", "reporter", "labels", "due", "parent", "children", "blocked",
+                "blocks_open", "stale",
                 "lease_until", "rank", "version", "comment_count", "last_comment_id",
                 "attachment_count", "created_at", "updated_at"}
 DETAIL_KEYS = SUMMARY_KEYS | {"body", "started_at", "review_requested_at", "resolved_at", "links",
-                              "new_comments", "attachments"}
+                              "new_comments", "attachments", "link_status"}
 
 
 def keys(result) -> list[str]:

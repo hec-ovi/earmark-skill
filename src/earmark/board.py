@@ -15,7 +15,7 @@ The methods live in focused modules and are composed here:
 | Module | Methods |
 |---|---|
 | issues.py | list_issues, get_issue, issue_events, activity, create_issue, update_issue, assign, rank, link, unlink, delete_issue |
-| workflow.py | move, claim, release, next, submit_review, approve, reject, done, reopen, cancel |
+| workflow.py | move, claim, release, next, need, submit_review, approve, reject, done, reopen, cancel |
 | comments.py | add_comment, edit_comment, list_comments, inbox |
 | attachments.py | attach, list_attachments, get_attachment, save_attachment, detach |
 | topics.py | topics, add_topic, edit_topic, move_topic, remove_topic |
@@ -102,13 +102,13 @@ class Board(IssuesMixin, WorkflowMixin, CommentsMixin, AttachmentsMixin, TopicsM
         cutoff = timeutil.iso(now - _seen_window())
         if self._seen_checked and self._seen_checked >= cutoff:  # last_seen known to be fresh
             return
-        row = self.conn.execute("SELECT last_seen FROM agents WHERE handle = ?",
+        row = self.conn.execute("SELECT last_seen, online FROM agents WHERE handle = ?",
                                 (self.actor,)).fetchone()
         if row is None:
             return
-        if row[0] < cutoff:
+        if row[0] < cutoff or not row[1]:  # a command by an agent that left brings it back
             with _db.write(self.conn) as conn:
-                self._refresh_seen(conn, self.actor, row[0], now)
+                self._refresh_seen(conn, self.actor, row[0], now, online=bool(row[1]))
         else:
             self._seen_checked = row[0]
 

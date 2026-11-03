@@ -111,14 +111,14 @@ class BoardBase:
         with db.write(self.conn) as conn:
             self._load_meta()
             agent = conn.execute(
-                "SELECT a.last_seen, p.role FROM agents a LEFT JOIN profiles p "
+                "SELECT a.last_seen, a.online, p.role FROM agents a LEFT JOIN profiles p "
                 "ON p.slug = a.profile WHERE a.handle = ?", (actor,)).fetchone()
             if agent is None:
                 raise self._not_joined(actor)
             now = timeutil.now()
             tx = Tx(conn, actor, now, timeutil.iso(now), agent["role"], actor == self.owner,
                     self.lease_minutes, self.require_review)
-            self._refresh_seen(conn, actor, agent["last_seen"], now)
+            self._refresh_seen(conn, actor, agent["last_seen"], now, online=bool(agent["online"]))
             yield tx
 
     @staticmethod
@@ -126,10 +126,16 @@ class BoardBase:
         return NotJoined(f"{actor!r} has not joined this board",
                          hint=f"earmark join <profile> --as {actor}  (see: earmark profiles)")
 
-    def _refresh_seen(self, conn, actor: str, last_seen: str, now: datetime) -> None:
-        """Conditional write: only when last_seen is older than the throttle window."""
+    def _refresh_seen(self, conn, actor: str, last_seen: str, now: datetime, *,
+                      online: bool = True) -> None:
+        """Conditional write: only when last_seen is older than the throttle window, or the
+        agent had left (any command by it marks it online again)."""
         cutoff = timeutil.iso(now - timedelta(seconds=SEEN_THROTTLE_S))
-        if last_seen < cutoff:
+        if not online:
+            conn.execute("UPDATE agents SET online = 1, last_seen = ? WHERE handle = ?",
+                         (timeutil.iso(now), actor))
+            last_seen = timeutil.iso(now)
+        elif last_seen < cutoff:
             conn.execute("UPDATE agents SET last_seen = ? WHERE handle = ? AND last_seen < ?",
                          (timeutil.iso(now), actor, cutoff))
             last_seen = timeutil.iso(now)

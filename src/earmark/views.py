@@ -21,6 +21,12 @@ DETAIL_COLUMNS = SUMMARY_COLUMNS + ", i.body, i.started_at, i.review_requested_a
 ISSUE_FROM = "issues i LEFT JOIN topics t ON t.id = i.topic_id"
 OPEN_BLOCKER = ("SELECT 1 FROM links k JOIN issues b ON b.id = k.src WHERE k.dst = i.id "
                 "AND k.kind = 'blocks' AND b.status NOT IN ('done', 'canceled')")
+# i blocks an open issue / the most urgent priority among the open issues i blocks (one level)
+BLOCKS_OPEN = ("EXISTS (SELECT 1 FROM links k JOIN issues b ON b.id = k.dst WHERE k.src = i.id "
+               "AND k.kind = 'blocks' AND b.status NOT IN ('done', 'canceled'))")
+EFFECTIVE_PRIORITY = ("min(i.priority, coalesce((SELECT min(b.priority) FROM links k JOIN issues b "
+                      "ON b.id = k.dst WHERE k.src = i.id AND k.kind = 'blocks' "
+                      "AND b.status NOT IN ('done', 'canceled')), 4))")
 ACTIVE_MINUTES = 15
 
 
@@ -54,8 +60,8 @@ def _batch(conn: sqlite3.Connection, sql: str, ids: list) -> Iterable[sqlite3.Ro
 
 
 def issue_extras(conn: sqlite3.Connection, ids: list[int]) -> dict:
-    """labels, children counts, comment counts/last ids, attachment counts and open-blocker
-    flags for ids."""
+    """labels, children counts, comment counts/last ids, attachment counts, open-blocker flags
+    and, for open issues, what they hold up (most urgent priority, count of open issues)."""
     labels: dict[int, list[str]] = {}
     for row in _batch(conn, "SELECT issue_id, label FROM labels WHERE issue_id IN ({marks}) "
                             "ORDER BY issue_id, label", ids):
@@ -73,19 +79,26 @@ def issue_extras(conn: sqlite3.Connection, ids: list[int]) -> dict:
         conn, "SELECT DISTINCT k.dst FROM links k JOIN issues b ON b.id = k.src "
               "WHERE k.kind = 'blocks' AND b.status NOT IN ('done', 'canceled') "
               "AND k.dst IN ({marks})", ids)}
+    holds = {r[0]: (r[1], r[2]) for r in _batch(
+        conn, "SELECT k.src, min(b.priority), count(*) FROM links k JOIN issues b ON b.id = k.dst "
+              "JOIN issues s ON s.id = k.src WHERE k.kind = 'blocks' "
+              "AND b.status NOT IN ('done', 'canceled') AND s.status NOT IN ('done', 'canceled') "
+              "AND k.src IN ({marks}) GROUP BY k.src", ids)}
     return {"labels": labels, "children": children, "comments": comments,
-            "attachments": attachments, "blocked": blocked}
+            "attachments": attachments, "blocked": blocked, "holds": holds}
 
 
 def summary(row, prefix: str, extras: dict, now_ts: str) -> dict:
     issue_id = row["id"]
     count, last = extras["comments"].get(issue_id, (0, None))
+    held_priority, blocks_open = extras["holds"].get(issue_id, (4, 0))
     return {
         "key": model.format_key(prefix, issue_id),
         "id": issue_id,
         "title": row["title"],
         "status": row["status"],
         "priority": model.priority_name(row["priority"]),
+        "effective_priority": model.priority_name(min(row["priority"], held_priority)),
         "type": row["type"],
         "topic": row["topic"],
         "assignee": row["assignee"],
@@ -96,6 +109,7 @@ def summary(row, prefix: str, extras: dict, now_ts: str) -> dict:
         "parent": model.format_key(prefix, row["parent_id"]),
         "children": extras["children"].get(issue_id, 0),
         "blocked": issue_id in extras["blocked"],
+        "blocks_open": blocks_open,
         "stale": is_stale(row, now_ts),
         "lease_until": row["lease_until"],
         "rank": float(row["rank"]),
@@ -140,6 +154,7 @@ def issue_detail(conn: sqlite3.Connection, prefix: str, issue_id: int, now_ts: s
         "SELECT id FROM issues WHERE parent_id = ? ORDER BY rank, id", (issue_id,))]
     data["children"] = summaries(conn, prefix, child_ids, now_ts)
     data["links"] = issue_links(conn, prefix, issue_id)
+    data["link_status"] = link_status(conn, prefix, issue_id)
     rows = conn.execute(f"SELECT {ATTACHMENT_COLUMNS} FROM attachments a WHERE a.issue_id = ? "
                         f"ORDER BY a.id", (issue_id,)).fetchall()
     data["attachments"] = attachments(rows, prefix, root)
@@ -162,6 +177,14 @@ def issue_links(conn: sqlite3.Connection, prefix: str, issue_id: int) -> dict:
         links[name].append(other)
     return {name: [model.format_key(prefix, i) for i in sorted(set(ids))]
             for name, ids in links.items()}
+
+
+def link_status(conn: sqlite3.Connection, prefix: str, issue_id: int) -> dict:
+    """{key: status} of every issue linked to issue_id (blockers, blocked, duplicates, relates)."""
+    rows = conn.execute("SELECT o.id, o.status FROM issues o WHERE o.id IN (SELECT dst FROM links "
+                        "WHERE src = ? UNION SELECT src FROM links WHERE dst = ?) ORDER BY o.id",
+                        (issue_id, issue_id)).fetchall()
+    return {model.format_key(prefix, r[0]): r[1] for r in rows}
 
 
 # ---- comments, events -------------------------------------------------------------------

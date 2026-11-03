@@ -171,8 +171,8 @@ class IssuesMixin:
                            (agent, scope)).fetchone()
         return row[0] if row else 0
 
-    def _detail(self, conn, issue_id: int) -> dict:
-        data = views.issue_detail(conn, self.prefix, issue_id, timeutil.now_iso(),
+    def _detail(self, conn, issue_id: int, now_ts: str | None = None) -> dict:
+        data = views.issue_detail(conn, self.prefix, issue_id, now_ts or timeutil.now_iso(),
                                   self.files_dir)
         data["new_comments"] = self._new_comment_count(conn, issue_id)
         return data
