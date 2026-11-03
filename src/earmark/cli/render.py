@@ -1,0 +1,809 @@
+"""Pure renderers: board dicts (shapes in docs/HTTP_API.md) in, text out.
+
+Plain ASCII-aligned text unless a Style with color is passed (stdout is a terminal and
+NO_COLOR is unset). Widths are measured on plain text and color is applied after padding, so
+alignment never depends on the terminal. Bodies (descriptions, comments, prompts) are never cut.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any, Callable, Iterable
+
+SEP = " · "
+TOPIC_WIDTH = 29          # ls TOPIC column cap (commands.md sample)
+TITLE_WIDTH = 80          # ls TITLE cap when stdout is not a terminal
+CLOSED = ("done", "canceled")
+
+
+class Style:
+    """ANSI styling; every method is the identity when color is off."""
+
+    STATUS = {"backlog": "2", "todo": "", "in_progress": "33", "in_review": "36",
+              "blocked": "31", "done": "32", "canceled": "2"}
+    PRIORITY = {"urgent": "1;31", "high": "31", "medium": "", "low": "2", "none": "2"}
+    FLAG = {"overdue": "31", "blocked": "31", "stale": "33"}
+
+    def __init__(self, color: bool = False, ellipsis: str = "...") -> None:
+        self.color = color
+        self.ellipsis = ellipsis
+
+    def paint(self, text: str, code: str | None) -> str:
+        if not self.color or not code or not text:
+            return text
+        return f"\x1b[{code}m{text}\x1b[0m"
+
+    def bold(self, text: str) -> str:
+        return self.paint(text, "1")
+
+    def dim(self, text: str) -> str:
+        return self.paint(text, "2")
+
+    def status(self, text: str) -> str:
+        return self.paint(text, self.STATUS.get(text.strip()))
+
+    def priority(self, text: str) -> str:
+        return self.paint(text, self.PRIORITY.get(text.strip()))
+
+    def cell(self, text: str) -> str:
+        return self.dim(text) if text.strip() == "-" else text
+
+    def flag(self, text: str) -> str:
+        return self.paint(text, self.FLAG.get(text.split(":", 1)[0], "2"))
+
+
+PLAIN = Style(False)
+
+
+# ---- small helpers ---------------------------------------------------------------------
+
+def dash(value: Any) -> str:
+    """Display value: '-' for empty, lists joined with ', '."""
+    if value is None or value == "" or value == [] or value == ():
+        return "-"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple)):
+        return ", ".join(dash(_key_of(v)) for v in value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _key_of(v: Any) -> Any:
+    if isinstance(v, dict):
+        return v.get("key") or v.get("path") or v.get("handle") or v.get("slug") or v.get("id")
+    return v
+
+
+def cut(text: str, width: int, ellipsis: str = "") -> str:
+    """Cut to width; with an ellipsis the result still fits in width."""
+    if width <= 0 or len(text) <= width:
+        return text
+    if not ellipsis:
+        return text[:width]
+    return text[: max(0, width - len(ellipsis))].rstrip() + ellipsis
+
+
+def today() -> str:
+    """UTC date, like the board's due dates (follows the board clock when it is loaded)."""
+    try:
+        from earmark import timeutil
+        return timeutil.today().isoformat()
+    except ImportError:
+        return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def now_epoch() -> float:
+    try:
+        from earmark import timeutil
+        return timeutil.now().timestamp()
+    except ImportError:
+        return time.time()
+
+
+def plural(n: int, word: str) -> str:
+    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+
+
+def is_overdue(issue: dict, day: str) -> bool:
+    due = issue.get("due")
+    return bool(due) and due < day and issue.get("status") not in CLOSED
+
+
+def lines_of(text: str | None) -> list[str]:
+    return (text or "").splitlines()
+
+
+def indent_body(text: str, prefix: str = "  ") -> list[str]:
+    out = [(prefix + line) if line.strip() else "" for line in lines_of(text)]
+    return out or [prefix.rstrip() or ""]
+
+
+def table(columns: list[tuple[str, Callable[[str], str] | None]], rows: list[list[str]],
+          style: Style = PLAIN, tails: list[str] | None = None,
+          min_widths: dict[int, int] | None = None) -> list[str]:
+    """Aligned rows, two spaces between columns, the last column unpadded, tails appended."""
+    widths = []
+    for i, (head, _) in enumerate(columns):
+        w = max([len(head)] + [len(r[i]) for r in rows])
+        if min_widths and i in min_widths:
+            w = max(w, min_widths[i])
+        widths.append(w)
+    last = len(columns) - 1
+
+    def render(cells: list[str], header: bool, tail: str) -> str:
+        parts = []
+        for i, text in enumerate(cells):
+            pad = "" if i == last else " " * (widths[i] - len(text) + 2)
+            if header:
+                shown = style.dim(text) if style.color else text
+            else:
+                fn = columns[i][1]
+                shown = fn(text) if (fn and style.color) else style.cell(text)
+            parts.append(shown + pad)
+        line = "".join(parts)
+        if tail:
+            line = line.rstrip() + "  " + tail if not cells[-1] else line + "  " + tail
+        return line
+
+    out = [render([h for h, _ in columns], True, "")]
+    for n, r in enumerate(rows):
+        out.append(render(r, False, tails[n] if tails else ""))
+    return out
+
+
+# ---- issues: ls --------------------------------------------------------------------------
+
+LS_DEFAULT = ("key", "status", "priority", "type", "assignee", "topic", "title", "flags")
+
+# field -> (header, getter)
+LS_COLUMNS: dict[str, tuple[str, Callable[[dict], Any]]] = {
+    "key": ("KEY", lambda i: i.get("key")),
+    "id": ("ID", lambda i: i.get("id")),
+    "status": ("STATUS", lambda i: i.get("status")),
+    "priority": ("PRIO", lambda i: i.get("priority")),
+    "type": ("TYPE", lambda i: i.get("type")),
+    "assignee": ("ASSIGNEE", lambda i: i.get("assignee")),
+    "reviewer": ("REVIEWER", lambda i: i.get("reviewer")),
+    "reporter": ("REPORTER", lambda i: i.get("reporter")),
+    "topic": ("TOPIC", lambda i: i.get("topic")),
+    "title": ("TITLE", lambda i: i.get("title")),
+    "labels": ("LABELS", lambda i: ",".join(i.get("labels") or [])),
+    "due": ("DUE", lambda i: i.get("due")),
+    "parent": ("PARENT", lambda i: i.get("parent")),
+    "children": ("SUB", lambda i: i.get("children") if not isinstance(i.get("children"), list)
+                 else len(i["children"])),
+    "rank": ("RANK", lambda i: i.get("rank")),
+    "version": ("VERSION", lambda i: i.get("version")),
+    "comment_count": ("C", lambda i: i.get("comment_count")),
+    "last_comment_id": ("LAST", lambda i: f"#{i['last_comment_id']}" if i.get("last_comment_id") else None),
+    "lease_until": ("LEASE", lambda i: i.get("lease_until")),
+    "blocked": ("BLOCKED", lambda i: i.get("blocked")),
+    "stale": ("STALE", lambda i: i.get("stale")),
+    "created_at": ("CREATED", lambda i: i.get("created_at")),
+    "updated_at": ("UPDATED", lambda i: i.get("updated_at")),
+}
+LS_ALIASES = {"prio": "priority", "comments": "comment_count", "c": "comment_count",
+              "created": "created_at", "updated": "updated_at", "lease": "lease_until",
+              "sub": "children", "label": "labels", "last_comment": "last_comment_id"}
+
+
+def ls_fields(spec: str | None) -> list[str]:
+    """Parse --fields; raises ValueError naming the unknown field."""
+    if not spec:
+        return list(LS_DEFAULT)
+    out = []
+    for raw in spec.split(","):
+        name = raw.strip().lower().replace("-", "_")
+        if not name:
+            continue
+        name = LS_ALIASES.get(name, name)
+        if name != "flags" and name not in LS_COLUMNS:
+            raise ValueError(raw.strip())
+        if name not in out:
+            out.append(name)
+    return out or list(LS_DEFAULT)
+
+
+def issue_flags(issue: dict, day: str | None = None) -> list[str]:
+    """Trailing ls flags: c:N due:MM-DD overdue blocked stale sub:N."""
+    day = day or today()
+    flags = []
+    if issue.get("comment_count"):
+        flags.append(f"c:{issue['comment_count']}")
+    due = issue.get("due")
+    if due:
+        flags.append("due:" + (due[5:] if due[:4] == day[:4] else due))
+        if is_overdue(issue, day):
+            flags.append("overdue")
+    if issue.get("blocked"):
+        flags.append("blocked")
+    if issue.get("stale"):
+        flags.append("stale")
+    kids = issue.get("children")
+    n = len(kids) if isinstance(kids, list) else (kids or 0)
+    if n:
+        flags.append(f"sub:{n}")
+    return flags
+
+
+def status_word(status: Any) -> str:
+    """Footer noun: '212 open issues', 'closed issues', 'issues'."""
+    if status in (None, "", "open", ["open"]):
+        return "open issues"
+    if isinstance(status, (list, tuple)) and len(status) == 1:
+        status = status[0]
+    if status in ("active", "closed"):
+        return f"{status} issues"
+    return "issues"
+
+
+def ls_footer(page: dict, noun: str = "open issues") -> str:
+    items = page.get("items") or []
+    total = page.get("total", len(items))
+    offset = page.get("offset") or 0
+    parts = [f"{len(items)} of {total} {noun}"]
+    if offset:
+        parts.append(f"offset {offset}")
+    if offset + len(items) < total and items:
+        parts.append(f"next: --offset {offset + len(items)}")
+    return SEP.join(parts)
+
+
+def render_ls(page: dict, *, fields: Iterable[str] | None = None, noun: str = "open issues",
+              style: Style = PLAIN, day: str | None = None, width: int | None = None) -> str:
+    """`earmark ls` text: header, aligned columns, '-' for empty, flags last, footer."""
+    items = page.get("items") or []
+    fields = list(fields or LS_DEFAULT)
+    footer = ls_footer(page, noun)
+    if not items:
+        return style.dim(footer) if style.color else footer
+    day = day or today()
+    show_flags = "flags" in fields
+    cols = [f for f in fields if f != "flags"]
+    tails = [" ".join(style.flag(f) for f in issue_flags(i, day)) if show_flags else ""
+             for i in items]
+    tail_plain = [" ".join(issue_flags(i, day)) if show_flags else "" for i in items]
+    rows = []
+    for i in items:
+        row = []
+        for f in cols:
+            text = dash(LS_COLUMNS[f][1](i))
+            if f == "topic":
+                text = cut(text, TOPIC_WIDTH, "" if not style.color else style.ellipsis)
+            row.append(text)
+        rows.append(row)
+    if "title" in cols:
+        ti = cols.index("title")
+        cap = TITLE_WIDTH
+        if width:
+            others = sum(max(len(LS_COLUMNS[c][0]), *(len(r[k]) for r in rows)) + 2
+                         for k, c in enumerate(cols) if k != ti)
+            longest_tail = max((len(t) for t in tail_plain), default=0)
+            cap = max(24, width - others - (longest_tail + 2 if longest_tail else 0) - 1)
+        for r in rows:
+            r[ti] = cut(r[ti], cap, style.ellipsis)
+    painters: dict[str, Callable[[str], str]] = {"status": style.status, "priority": style.priority,
+                                                 "key": style.bold}
+    columns = [(LS_COLUMNS[f][0], painters.get(f)) for f in cols]
+    out = table(columns, rows, style, tails)
+    out.append(style.dim(footer) if style.color else footer)
+    return "\n".join(out)
+
+
+# ---- issues: show ------------------------------------------------------------------------
+
+def _links(issue: dict, kind: str) -> list[str]:
+    links = issue.get("links") or {}
+    return list(links.get(kind) or issue.get(kind) or [])
+
+
+def _children_keys(issue: dict) -> list[str]:
+    kids = issue.get("children")
+    if isinstance(kids, list):
+        return [k["key"] if isinstance(k, dict) else str(k) for k in kids]
+    return []
+
+
+def holder_note(issue: dict, who: str, day: str | None = None) -> str:
+    """'(lease until …)' after the holder: assignee while in_progress, reviewer while in_review."""
+    lease = issue.get("lease_until")
+    status = issue.get("status")
+    holder = {"in_progress": "assignee", "in_review": "reviewer"}.get(status or "")
+    if not lease or holder != who or not issue.get(who):
+        return ""
+    return f" (lease until {lease}, stale)" if issue.get("stale") else f" (lease until {lease})"
+
+
+def comments_summary(issue: dict) -> str:
+    n = issue.get("comment_count") or 0
+    text = f"comments: {n}"
+    if n and issue.get("last_comment_id"):
+        text += f", last #{issue['last_comment_id']}"
+    new = issue.get("new_comments")
+    if new is not None:
+        text += f", {new} new for you"
+    return text
+
+
+def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None) -> str:
+    """`earmark show` (and `next`) text, exactly the commands.md layout."""
+    day = day or today()
+    g = "   "
+    due = dash(issue.get("due"))
+    if is_overdue(issue, day):
+        due += " (overdue)"
+    head = f"{style.bold(issue.get('key', '?'))}  {issue.get('title', '')}"
+    lines = [
+        head,
+        g.join([f"status: {style.status(dash(issue.get('status')))}",
+                f"priority: {style.priority(dash(issue.get('priority')))}",
+                f"type: {dash(issue.get('type'))}", f"version: {dash(issue.get('version'))}"]),
+        f"topic: {dash(issue.get('topic'))}",
+        g.join([f"assignee: {dash(issue.get('assignee'))}{holder_note(issue, 'assignee')}",
+                f"reviewer: {dash(issue.get('reviewer'))}{holder_note(issue, 'reviewer')}",
+                f"reporter: {dash(issue.get('reporter'))}"]),
+        g.join([f"labels: {dash(issue.get('labels'))}", f"due: {due}"]),
+        g.join([f"parent: {dash(issue.get('parent'))}", f"sub: {dash(_children_keys(issue))}",
+                f"blocks: {dash(_links(issue, 'blocks'))}",
+                f"blocked by: {dash(_links(issue, 'blocked_by'))}"]),
+    ]
+    extra = [(label, _links(issue, kind)) for label, kind in
+             (("duplicates", "duplicates"), ("duplicated by", "duplicated_by"), ("relates", "relates"))]
+    if any(v for _, v in extra):
+        lines.append(g.join(f"{label}: {dash(v)}" for label, v in extra))
+    lines.append(g.join([f"created: {dash(issue.get('created_at'))}",
+                         f"updated: {dash(issue.get('updated_at'))}"]))
+    lines.append(comments_summary(issue))
+    lines.append("")
+    body = issue.get("body") or ""
+    lines.append(body.rstrip("\n") if body.strip() else style.dim("(no description)"))
+    recent = issue.get("comments")
+    if recent:
+        lines.append("")
+        total = issue.get("comment_count") or len(recent)
+        lines.append(style.dim(f"last {len(recent)} of {plural(total, 'comment')}:")
+                     if style.color else f"last {len(recent)} of {plural(total, 'comment')}:")
+        for c in recent:
+            lines.extend(comment_lines(c, style=style))
+    return "\n".join(lines)
+
+
+SHOW_FIELDS = ("key", "title", "body", "status", "priority", "type", "topic", "assignee",
+               "reviewer", "reporter", "labels", "due", "parent", "children", "blocks",
+               "blocked_by", "duplicates", "relates", "lease_until", "stale", "version",
+               "created_at", "updated_at", "started_at", "review_requested_at", "resolved_at",
+               "comment_count", "last_comment_id", "new_comments")
+SHOW_ALIASES = {"sub": "children", "prio": "priority", "created": "created_at",
+                "updated": "updated_at", "lease": "lease_until", "comments": "comment_count",
+                "description": "body", "blocked-by": "blocked_by", "label": "labels"}
+
+
+def show_fields(spec: str) -> list[str]:
+    out = []
+    for raw in spec.split(","):
+        name = raw.strip().lower()
+        if not name:
+            continue
+        name = SHOW_ALIASES.get(name, name).replace("-", "_")
+        if name not in SHOW_FIELDS:
+            raise ValueError(raw.strip())
+        if name not in out:
+            out.append(name)
+    return out
+
+
+def field_value(issue: dict, name: str) -> Any:
+    if name == "children":
+        return _children_keys(issue)
+    if name in ("blocks", "blocked_by", "duplicates", "relates"):
+        return _links(issue, name)
+    return issue.get(name)
+
+
+def render_fields(issue: dict, fields: Iterable[str]) -> str:
+    """`show -f a,b`: one `field: value` line each; multi-line values continue indented."""
+    out = []
+    for name in fields:
+        value = field_value(issue, name)
+        if name == "body":
+            body = lines_of(value)
+            if not body:
+                out.append("body: -")
+                continue
+            out.append(f"body: {body[0]}".rstrip())
+            out.extend(("  " + ln) if ln.strip() else "" for ln in body[1:])
+            continue
+        out.append(f"{name}: {dash(value)}")
+    return "\n".join(out)
+
+
+# ---- comments and inbox ------------------------------------------------------------------
+
+def comment_lines(c: dict, *, with_key: bool = False, style: Style = PLAIN) -> list[str]:
+    head = [f"#{c.get('id')}", str(c.get("author") or "-"), str(c.get("kind") or "note"),
+            str(c.get("created_at") or "-")]
+    if with_key:
+        head.insert(0, str(c.get("issue") or "-"))
+    if c.get("reply_to"):
+        head.append(f"reply-to:#{c['reply_to']}")
+    if c.get("edited_at"):
+        head.append("edited")
+    first = "  ".join(head)
+    if style.color:
+        first = style.bold(first)
+    return [first] + indent_body(c.get("body") or "")
+
+
+def render_comments(page: dict, *, key: str | None = None, since: int | None = None,
+                    new: bool = False, style: Style = PLAIN) -> str:
+    items = page.get("items") or []
+    if not items:
+        after = page.get("last_id") or since
+        if new or since is not None:
+            word = "nothing new" if new else "nothing"
+            return f"comments: {word} after #{after}" if after else f"comments: {word}"
+        return f"comments: none on {key}" if key else "comments: none"
+    out: list[str] = []
+    for c in items:
+        out.extend(comment_lines(c, style=style))
+    last = page.get("last_id") or items[-1].get("id")
+    foot = [f"last: #{last}", plural(len(items), "comment")]
+    if page.get("has_more"):
+        foot.append(f"more: --since {last}")
+    out.append(SEP.join(foot))
+    return "\n".join(out)
+
+
+def render_inbox(page: dict, *, peek: bool = False, style: Style = PLAIN) -> str:
+    items = page.get("items") or []
+    if not items:
+        cursor = page.get("cursor") or page.get("last_id")
+        return f"inbox: nothing new after #{cursor}" if cursor else "inbox: nothing new"
+    out: list[str] = []
+    for c in items:
+        out.extend(comment_lines(c, with_key=True, style=style))
+    last = page.get("last_id") or items[-1].get("id")
+    foot = [f"last: #{last}", plural(len(items), "comment")]
+    if page.get("has_more"):
+        foot.append("more: earmark inbox --peek" if peek else "more: earmark inbox")
+    out.append(SEP.join(foot))
+    return "\n".join(out)
+
+
+# ---- topics ------------------------------------------------------------------------------
+
+def render_topics(nodes: list[dict], *, style: Style = PLAIN) -> str:
+    """Tree with open counts; first column min 28 wide, counts right-aligned."""
+    rows: list[tuple[str, str, str, bool]] = []
+
+    def walk(node: dict, depth: int) -> None:
+        label = node.get("path") if depth == 0 else node.get("slug")
+        counts = node.get("counts") or {}
+        rows.append(("  " * depth + str(label or node.get("slug") or "?"),
+                     str(node.get("name") or node.get("slug") or ""),
+                     str(counts.get("open", 0)), bool(node.get("archived"))))
+        for child in node.get("children") or []:
+            walk(child, depth + 1)
+
+    for n in nodes:
+        walk(n, 0)
+    if not rows:
+        return "topics: none · add one: earmark topic add PATH"
+    w1 = max(28, max(len(r[0]) for r in rows)) + 2
+    w2 = max(len(r[1]) for r in rows) + 2
+    w3 = max(len(r[2]) for r in rows)
+    out = []
+    for path, name, count, archived in rows:
+        line = f"{path:<{w1}}{name:<{w2}}{count:>{w3}} open"
+        if archived:
+            line += "  archived"
+        out.append(style.dim(line) if (archived and style.color) else line)
+    return "\n".join(out)
+
+
+# ---- team, profiles ----------------------------------------------------------------------
+
+def parse_ts(ts: str) -> float | None:
+    """'YYYY-MM-DDTHH:MM:SSZ' -> epoch seconds (UTC), None when unparsable."""
+    import calendar
+    try:
+        return float(calendar.timegm((int(ts[0:4]), int(ts[5:7]), int(ts[8:10]),
+                                      int(ts[11:13]), int(ts[14:16]), int(ts[17:19]), 0, 0, 0)))
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def ago(ts: str | None, now: float | None = None) -> str:
+    """Compact age: 45s, 2m, 1h, 3d, 5w; '-' when unknown."""
+    t = parse_ts(ts) if ts else None
+    if t is None:
+        return "-"
+    s = max(0, int((now_epoch() if now is None else now) - t))
+    for size, unit in ((604800, "w"), (86400, "d"), (3600, "h"), (60, "m")):
+        if s >= size:
+            return f"{s // size}{unit}"
+    return f"{s}s"
+
+
+def working_of(agent: dict) -> str:
+    items = list(agent.get("working") or []) + list(agent.get("reviewing") or [])
+    return ", ".join(f"{i.get('key')} {i.get('status')}" for i in items) or "-"
+
+
+def render_team(team: dict, *, owner: str | None = None, now: float | None = None,
+                style: Style = PLAIN) -> str:
+    agents = team.get("agents") if isinstance(team, dict) else team
+    agents = agents or []
+    if not agents:
+        return "team: nobody yet · earmark join PROFILE"
+    rows = []
+    for a in agents:
+        role = a.get("role") or ("owner" if a.get("handle") == owner else a.get("kind"))
+        rows.append([dash(a.get("handle")), dash(role), dash(a.get("profile")), dash(a.get("cli")),
+                     ago(a.get("last_seen"), now), dash(a.get("presence")), working_of(a)])
+    presence = {"active": "32", "idle": "33", "offline": "2"}
+    cols = [("HANDLE", style.bold), ("ROLE", None), ("PROFILE", None), ("CLI", None),
+            ("SEEN", None), ("STATE", lambda t: style.paint(t, presence.get(t.strip()))),
+            ("WORKING", None)]
+    return "\n".join(table(cols, rows, style, min_widths={0: 10}))
+
+
+def render_profiles(profiles: list[dict], *, style: Style = PLAIN) -> str:
+    if not profiles:
+        return "profiles: none · earmark profile add SLUG --role R --name N"
+    rows = [[dash(p.get("slug")), dash(p.get("role")), dash(p.get("name")),
+             dash(p.get("topics")) if p.get("topics") else "whole board", dash(p.get("agents"))]
+            for p in profiles]
+    cols = [("SLUG", style.bold), ("ROLE", None), ("NAME", None), ("SCOPE", None), ("AGENTS", None)]
+    return "\n".join(table(cols, rows, style))
+
+
+def render_profile(p: dict, *, style: Style = PLAIN) -> str:
+    lines = [f"{style.bold(str(p.get('slug')))}  {p.get('name') or ''}".rstrip(),
+             "   ".join([f"role: {dash(p.get('role'))}", f"version: {dash(p.get('version'))}",
+                         f"agents: {dash(p.get('agents'))}"]),
+             f"scope: {dash(p.get('topics')) if p.get('topics') else 'whole board'}",
+             "   ".join([f"created: {dash(p.get('created_at'))}",
+                         f"updated: {dash(p.get('updated_at'))}"]),
+             ""]
+    prompt = p.get("prompt") or ""
+    lines.append(prompt.rstrip("\n") if prompt.strip() else "(no prompt)")
+    return "\n".join(lines)
+
+
+def summary_rows(items: list[dict], *, style: Style = PLAIN, day: str | None = None,
+                 fields: Iterable[str] = ("key", "status", "priority", "topic", "title", "flags")) -> list[str]:
+    """Compact issue table without footer (briefings, whoami, triage)."""
+    text = render_ls({"items": items, "total": len(items)}, fields=fields, style=style, day=day)
+    return text.split("\n")[:-1]
+
+
+def render_briefing(b: dict, *, style: Style = PLAIN, day: str | None = None) -> str:
+    """`earmark join`: identity, how to pass it, prompt, scope, assigned issues, inbox, loop."""
+    agent = b.get("agent") or {}
+    prof = b.get("profile") or {}
+    board = b.get("board") or {}
+    handle = agent.get("handle") or "?"
+    role = prof.get("role") or agent.get("role") or "-"
+    lines = [f"you are {style.bold(handle)}{SEP}profile {prof.get('slug') or agent.get('profile') or '-'} "
+             f"({role}){SEP}board {board.get('prefix') or '-'}",
+             f"pass --as {handle} on every earmark command",
+             f"scope: {dash(b.get('scope')) if b.get('scope') else 'whole board'}"]
+    settings = []
+    if "require_review" in board:
+        rr = board.get("require_review")
+        settings.append("review required: " + ("yes" if rr in (True, 1, "1") else "no"))
+    if board.get("lease_minutes"):
+        settings.append(f"lease: {board['lease_minutes']}m")
+    if settings:
+        lines.append(SEP.join(settings))
+    prompt = (prof.get("prompt") or "").strip("\n")
+    if prompt.strip():
+        lines += ["", prompt]
+    assigned = b.get("assigned") or []
+    lines.append("")
+    if assigned:
+        lines.append(f"assigned to you ({len(assigned)}):")
+        lines += summary_rows(assigned, style=style, day=day)
+    else:
+        lines.append("assigned to you: none")
+    lines.append(f"inbox: {b.get('inbox_new') or 0} new")
+    loop = (b.get("loop") or "").strip("\n")
+    if loop.strip():
+        lines += ["", loop]
+    return "\n".join(lines)
+
+
+# ---- generic -----------------------------------------------------------------------------
+
+def _scalar(v: Any) -> str:
+    if isinstance(v, dict):
+        if "key" in v and ("status" in v or "title" in v):
+            return f"{v['key']} {v.get('status', '')}".strip()
+        return " ".join(f"{k}={dash(_key_of(x)) if not isinstance(x, dict) else _scalar(x)}"
+                        for k, x in v.items()) or "-"
+    if isinstance(v, (list, tuple)):
+        return ", ".join(_scalar(x) for x in v) or "-"
+    return dash(v)
+
+
+def render_kv(d: dict, *, skip: Iterable[str] = ()) -> str:
+    """Fallback `key: value` lines for dicts without a dedicated layout."""
+    skip = set(skip)
+    return "\n".join(f"{k}: {_scalar(v)}" for k, v in d.items() if k not in skip)
+
+
+def render_doctor(checks: list[dict]) -> str:
+    w = max([len(str(c.get("name"))) for c in checks] + [4])
+    out = []
+    for c in checks:
+        mark = "ok  " if c.get("ok") else "FAIL"
+        out.append(f"{mark}  {str(c.get('name')):<{w}}  {dash(c.get('detail'))}".rstrip())
+    bad = sum(1 for c in checks if not c.get("ok"))
+    out.append(f"doctor: {len(checks) - bad} of {len(checks)} checks ok")
+    return "\n".join(out)
+
+
+def human_size(n: Any) -> str:
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return dash(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} GB"
+
+
+# ---- write confirmations and board views --------------------------------------------------
+
+def status_line(issue: dict, verb: str) -> str:
+    """One line after a work command: `GAME-42 claimed · in_progress · assignee x · lease until T`."""
+    status = issue.get("status")
+    parts = [f"{issue.get('key', '?')} {verb}"]
+    if status and status != verb:
+        parts.append(status)
+    if status in ("todo", "in_progress", "in_review", "blocked") and issue.get("assignee"):
+        parts.append(f"assignee {issue['assignee']}")
+    if status == "in_review" and issue.get("reviewer"):
+        parts.append(f"reviewer {issue['reviewer']}")
+    if status in ("in_progress", "in_review") and issue.get("lease_until"):
+        parts.append(f"lease until {issue['lease_until']}")
+    return SEP.join(parts)
+
+
+def _keys(items: Any) -> str:
+    if not items:
+        return "-"
+    if isinstance(items, (list, tuple)):
+        return ", ".join(str(_key_of(i)) for i in items)
+    return str(items)
+
+
+def render_leave(res: Any, *, actor: str | None = None) -> str:
+    if not isinstance(res, dict):
+        return f"{actor or 'you'} offline"
+    agent = res.get("agent") if isinstance(res.get("agent"), dict) else {}
+    handle = agent.get("handle") or res.get("handle") or actor or "you"
+    parts = [f"{handle} offline"]
+    for label, k in (("returned", "returned"), ("released", "released"),
+                     ("unassigned", "unassigned"), ("reviews returned", "reviews"),
+                     ("kept", "kept")):
+        if res.get(k):
+            parts.append(f"{label}: {_keys(res[k])}")
+    return SEP.join(parts)
+
+
+def render_whoami(res: dict, *, style: Style = PLAIN, day: str | None = None) -> str:
+    agent = res.get("agent") if isinstance(res.get("agent"), dict) else res
+    prof = res.get("profile") if isinstance(res.get("profile"), dict) else {}
+    handle = agent.get("handle") or "?"
+    profile = prof.get("slug") or agent.get("profile")
+    role = prof.get("role") or agent.get("role") or agent.get("kind")
+    scope = res.get("scope") if "scope" in res else prof.get("topics")
+    lines = [SEP.join([f"handle: {style.bold(str(handle))}", f"profile: {dash(profile)}",
+                       f"role: {dash(role)}", f"state: {dash(agent.get('presence'))}"]),
+             f"scope: {dash(scope) if scope else 'whole board'}"]
+    if res.get("inbox_new") is not None:
+        lines.append(f"inbox: {res['inbox_new']} new")
+    issues = []
+    for k in ("working", "reviewing", "assigned"):
+        for i in (res.get(k) or agent.get(k) or []):
+            if isinstance(i, dict) and i.get("key") not in {x.get("key") for x in issues}:
+                issues.append(i)
+    if issues:
+        lines.append(f"your issues ({len(issues)}):")
+        lines += summary_rows(issues, style=style, day=day)
+    else:
+        lines.append("your issues: none")
+    return "\n".join(lines)
+
+
+def render_triage(res: dict, *, style: Style = PLAIN, day: str | None = None) -> str:
+    """Sections in board order; issue lists as compact tables, agents by handle."""
+    if not isinstance(res, dict):
+        return dash(res)
+    out: list[str] = []
+    for name, value in res.items():
+        title = name.replace("_", " ")
+        if isinstance(value, list):
+            out.append(f"{title} ({len(value)}):" if value else f"{title}: none")
+            if value and all(isinstance(v, dict) and "key" in v for v in value):
+                out += ["  " + ln for ln in summary_rows(value, style=style, day=day)]
+            elif value:
+                out += ["  " + _scalar(v) for v in value]
+        elif isinstance(value, dict):
+            out.append(f"{title}: {_scalar(value)}")
+        else:
+            out.append(f"{title}: {dash(value)}")
+    return "\n".join(out) or "triage: nothing to do"
+
+
+def render_info(res: dict) -> str:
+    if not isinstance(res, dict):
+        return dash(res)
+    lines = []
+    if res.get("path"):
+        lines.append(f"board: {res['path']}")
+    head = [f"{k}: {dash(res[k])}" for k in ("prefix", "owner", "schema_version") if k in res]
+    if head:
+        lines.append(SEP.join(head))
+    settings = res.get("settings")
+    if isinstance(settings, dict) and settings:
+        lines.append("settings: " + " ".join(f"{k}={dash(v)}" for k, v in settings.items()))
+    counts = res.get("counts")
+    if isinstance(counts, dict):
+        by = counts.get("by_status") or {}
+        parts = [f"issues: {counts.get('total', sum(by.values()) if by else 0)} total, "
+                 f"{counts.get('open', 0)} open"]
+        parts += [f"{s} {n}" for s, n in by.items() if n]
+        lines.append(SEP.join(parts))
+    agents = res.get("agents") if "agents" in res else res.get("agents_online")
+    if agents is not None:
+        if isinstance(agents, list):
+            lines.append(f"agents online: {len(agents)}" + (f" ({_keys(agents)})" if agents else ""))
+        elif isinstance(agents, dict):
+            lines.append("agents: " + " ".join(f"{k}={dash(v)}" for k, v in agents.items()))
+        else:
+            lines.append(f"agents online: {agents}")
+    sizes = res.get("sizes") or res.get("files")
+    if isinstance(sizes, dict) and sizes:
+        lines.append("files: " + SEP.join(f"{k} {human_size(v)}" for k, v in sizes.items()))
+    known = {"path", "prefix", "owner", "schema_version", "settings", "counts", "agents",
+             "agents_online", "sizes", "files"}
+    rest = {k: v for k, v in res.items() if k not in known}
+    if rest:
+        lines.append(render_kv(rest))
+    return "\n".join(lines)
+
+
+def render_wait(hit: Any) -> str:
+    if not isinstance(hit, dict):
+        return f"wait: {dash(hit)}"
+    parts = [f"wait: {hit.get('reason') or 'something arrived'}"]
+    issue = hit.get("issue") if isinstance(hit.get("issue"), dict) else None
+    key = (issue or {}).get("key") or (hit.get("key") if isinstance(hit.get("key"), str) else None)
+    title = (issue or {}).get("title") or hit.get("title")
+    if key:
+        parts.append(f"{key} {title}" if title else key)
+    for k, v in hit.items():
+        if k in ("reason", "issue", "key", "title", "hint") or isinstance(v, (dict, list)):
+            continue
+        parts.append(f"{k.replace('_', ' ')}: {dash(v)}")
+    text = SEP.join(parts)
+    if hit.get("hint"):
+        text += f"\nhint: {hit['hint']}"
+    return text
+
+
+def render_backup(res: Any, dest: str) -> str:
+    if not isinstance(res, dict):
+        return f"backup: {dest}"
+    parts = [f"backup: {res.get('path') or dest}"]
+    size = res.get("bytes") if "bytes" in res else res.get("size")
+    if size is not None:
+        parts.append(human_size(size))
+    return SEP.join(parts)
