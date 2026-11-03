@@ -219,7 +219,8 @@ class TeamMixin:
 
     def triage(self) -> dict:
         """PM view: {backlog, unassigned, stale, review_queue, review_since, blocked, overdue,
-        idle_agents, counts}. Lists hold IssueSummary (Agent for idle_agents), capped at 100."""
+        idle_agents, counts}. Lists hold IssueSummary (Agent for idle_agents), capped at 100.
+        idle_agents: online agents (not the human owner, not pms) working and reviewing nothing."""
         now = timeutil.now()
         now_ts = timeutil.iso(now)
         today = now.date().isoformat()
@@ -246,9 +247,11 @@ class TeamMixin:
                 out[name] = views.summaries(conn, self.prefix, [r[0] for r in rows], now_ts)
                 if name == "review_queue":
                     out["review_since"] = {self._key(r[0]): r[1] for r in rows}
-            agents = conn.execute(f"{views.AGENT_SELECT} WHERE a.online = 1 ORDER BY a.last_seen").fetchall()
+            agents = conn.execute(
+                f"{views.AGENT_SELECT} WHERE a.online = 1 AND a.kind <> 'human' AND "
+                f"coalesce(p.role, '') <> 'pm' ORDER BY a.last_seen").fetchall()
             team = views.agents(conn, self.prefix, agents, now)
-        out["idle_agents"] = [a for a in team if a["presence"] == "idle" or not a["working"] + a["reviewing"]]
+        out["idle_agents"] = [a for a in team if not a["working"] + a["reviewing"]]
         counts["idle_agents"] = len(out["idle_agents"])
         out["counts"] = counts
         return out
