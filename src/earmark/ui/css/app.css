@@ -465,7 +465,7 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 
 .board { display: flex; align-items: stretch; gap: 12px; height: 100%; min-width: min-content; padding: 12px var(--gutter) 16px; }
 .col {
-  display: flex; flex-direction: column; flex: 0 0 272px; min-height: 0; max-height: 100%;
+  display: flex; flex-direction: column; flex: 1 0 264px; max-width: 360px; min-height: 0; max-height: 100%;
   background: var(--bg-side); border: 1px solid var(--border); border-radius: 10px;
   transition: border-color 0.12s, background-color 0.12s;
 }

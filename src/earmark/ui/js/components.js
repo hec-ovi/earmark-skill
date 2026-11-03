@@ -292,10 +292,10 @@ export function Menu({ items, onSelect, multi, search, placeholder = 'Filter…'
 // ---------------------------------------------------------------- toasts
 
 export function Toasts() {
-  const icon = { error: 'circle-alert', warn: 'refresh-cw', success: 'circle-check', info: 'info' };
+  const icon = { error: 'circle-alert', warn: 'triangle-alert', success: 'circle-check', info: 'info' };
   return html`<div class="toasts" role="status" aria-live="polite">
     ${state.toasts.map((t) => html`<div class=${cx('toast', 'toast-' + t.kind)} key=${t.id}>
-      <${Icon} name=${icon[t.kind] || 'info'} size=${16} cls="toast-ico" />
+      <${Icon} name=${t.icon || icon[t.kind] || 'info'} size=${16} cls="toast-ico" />
       <div class="toast-main">
         <div class="toast-title">${t.title}</div>
         ${t.body ? html`<div class="toast-body">${t.body}</div>` : null}
@@ -313,8 +313,9 @@ export function Dialog({ title, icon, onClose, children, footer, wide, cls, labe
   useEffect(() => {
     const prev = document.activeElement;
     const el = ref.current;
-    const first = el && firstFocusable(el, '[data-autofocus]', 'input, textarea, select', '.dialog-body button', 'button');
+    const first = el && firstFocusable(el, '[data-autofocus]', 'input, textarea, select', '.dialog-body button');
     if (first) first.focus();
+    else if (el) el.focus();
     return () => {
       if (prev && prev.isConnected) {
         try { prev.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
@@ -335,7 +336,7 @@ export function Dialog({ title, icon, onClose, children, footer, wide, cls, labe
     }
   };
   return html`<div class="scrim" onMouseDown=${(e) => { if (e.target === e.currentTarget) onClose(); }}>
-    <div class=${cx('dialog', wide && 'is-wide', cls)} role="dialog" aria-modal="true" aria-label=${labelledBy ? null : title} ref=${ref} onKeyDown=${onKey}>
+    <div class=${cx('dialog', wide && 'is-wide', cls)} tabindex="-1" role="dialog" aria-modal="true" aria-label=${labelledBy ? null : title} ref=${ref} onKeyDown=${onKey}>
       <div class="dialog-head">
         ${icon ? html`<${Icon} name=${icon} size=${16} cls="dialog-ico" />` : null}
         <h2 class="dialog-title">${title}</h2>

@@ -208,8 +208,10 @@ export function dismissToast(id) {
 
 export function handleError(e, context) {
   if (e && (e.status === 409 || e.code === 'conflict')) {
-    toast({ kind: 'warn', title: 'Changed by someone else — reloaded', body: e.message, hint: e.hint });
-    if (e.details && e.details.key && e.details.version) applyIssue(e.details);
+    const current = e.details && e.details.key && e.details.version ? e.details : null;
+    // a stale version is "someone else changed it"; other conflicts (a live lease) say why
+    toast({ kind: 'warn', icon: current ? 'refresh-cw' : null, title: current ? 'Changed by someone else — reloaded' : e.message, body: current ? e.message : null, hint: e.hint });
+    if (current) applyIssue(current);
     refreshNow();
     return;
   }

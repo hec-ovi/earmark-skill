@@ -418,7 +418,7 @@ function Description({ issue }) {
       setEditing(false);
     } catch (e) {
       if (e.status === 409 || e.code === 'conflict') {
-        toast({ kind: 'warn', title: 'Changed by someone else — reloaded', body: 'Your draft is kept. Review the new version, then save again.', hint: e.hint });
+        toast({ kind: 'warn', icon: 'refresh-cw', title: 'Changed by someone else — reloaded', body: 'Your draft is kept. Review the new version, then save again.', hint: e.hint });
         if (e.details && e.details.key) applyIssue(e.details);
         else loadDetail(issue.key);
       } else handleError(e);

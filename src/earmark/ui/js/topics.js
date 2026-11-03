@@ -18,8 +18,8 @@ export function TopicTree() {
   const scope = state.base && state.base.scope;
   const active = scope && scope.type === 'topic' && state.route.page !== 'team' ? scope.path : null;
   if (!state.topics.length) {
-    return html`<div class="tree-empty">No topics yet.
-      <button type="button" class="link-btn" onClick=${() => openTopicDialog({ mode: 'add', parent: '' })}>Add the first one</button>
+    return html`<div class="tree-empty">No topics yet.${' '}
+      <button type="button" class="link-btn" onClick=${() => openTopicDialog({ mode: 'add', parent: '' })}>Add the first one</button>${' '}
       or run <code>earmark topic add ui-ux</code></div>`;
   }
   return html`<div class="tree" role="tree" aria-label="Topics">

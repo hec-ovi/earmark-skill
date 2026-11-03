@@ -324,7 +324,7 @@ function Toolbar() {
       ${state.base.layout === 'board' ? html`<button type="button" class=${cx('tool-btn', state.showBacklog && 'is-on')}
         aria-pressed=${String(state.showBacklog)} title="Show the backlog column"
         onClick=${() => { set({ showBacklog: !state.showBacklog }); store.set('board.backlog', !state.showBacklog); }}>
-        <${Icon} name="circle-dashed" size=${14} /><span class="tool-txt">Backlog</span></button>` : null}
+        <${Icon} name="circle-dashed" size=${14} /><span>Backlog</span></button>` : null}
       <${SortButton} />
       <${LayoutToggle} />
     </div>

@@ -90,7 +90,7 @@ function EmptyList() {
     return html`<${Empty} icon="inbox" title="No issues on this board yet"
       action=${html`<button type="button" class="btn btn-primary" onClick=${() => openNewIssue()}><${Icon} name="plus" size=${15} />New issue</button>`}>
       Create one here, or let an agent file it:
-      <pre class="cmd">earmark new "Eye color resets on reload" -t ui-ux -p high</pre>
+      <pre class="cmd">earmark new "Eye color resets on reload" -p high</pre>
     </${Empty}>`;
   }
   const msg = {
