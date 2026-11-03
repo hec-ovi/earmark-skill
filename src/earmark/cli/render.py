@@ -787,14 +787,17 @@ def summary_rows(items: list[dict], *, style: Style = PLAIN, day: str | None = N
     return text.split("\n")[:-1]
 
 
-def render_briefing(b: dict, *, style: Style = PLAIN, day: str | None = None) -> str:
-    """`earmark join`: identity, how to pass it, prompt, scope, assigned issues, inbox, loop."""
+def render_briefing(b: dict, *, style: Style = PLAIN, day: str | None = None,
+                    resumed: bool = False) -> str:
+    """`earmark join`: identity, how to pass it, prompt, scope, assigned issues, inbox, loop.
+    resumed: an agent that had left came back under its handle (`you are H (resumed)`)."""
     agent = b.get("agent") or {}
     prof = b.get("profile") or {}
     board = b.get("board") or {}
     handle = agent.get("handle") or "?"
     role = prof.get("role") or agent.get("role") or "-"
-    lines = [f"you are {style.bold(handle)}{SEP}profile {prof.get('slug') or agent.get('profile') or '-'} "
+    again = " (resumed)" if resumed else ""
+    lines = [f"you are {style.bold(handle)}{again}{SEP}profile {prof.get('slug') or agent.get('profile') or '-'} "
              f"({role}){SEP}board {board.get('prefix') or '-'}",
              f"pass --as {handle} on every earmark command",
              f"scope: {dash(b.get('scope')) if b.get('scope') else 'whole board'}"]

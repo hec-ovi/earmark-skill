@@ -17,7 +17,8 @@ def cmd_join(ctx: Context, a) -> Result:
     brief = b.join(a.profile, handle=ctx.actor_flag(), cli=a.cli)
     agent = brief.get("agent") or {} if isinstance(brief, dict) else {}
     ctx.actor = agent.get("handle") or ctx.actor_flag()
-    return Result(brief, lambda: R.render_briefing(brief, style=ctx.style))
+    resumed = getattr(b, "join_action", None) == "rejoin"  # an agent that left is back
+    return Result(brief, lambda: R.render_briefing(brief, style=ctx.style, resumed=resumed))
 
 
 def cmd_leave(ctx: Context, a) -> Result:
