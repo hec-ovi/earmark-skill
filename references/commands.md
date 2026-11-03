@@ -248,7 +248,9 @@ assigned issues wait on open blockers, `M waiting on blockers`; a reviewer's hea
 
 One line per issue that changed, issues that need you first (new for you, a question for you,
 rejected, unblocked), then by priority; at most 10 lines, then `+N more`. Status and priority
-show `old→new`; other fields only say `<field> changed`; comments and files are counts. A
+show `old→new`; links name each one, added or removed as seen from the issue (`+blocks GAME-5`,
+`-relates GAME-2`, `+blocked by GAME-8`; two at most, then `…`); other fields only say
+`<field> changed`; comments and files are counts. A
 `question for you` is a `question` that @mentions you or, mentioning nobody, sits on an issue
 you are assignee or reviewer of; other comments that @mention you print `mentions you`. Nothing
 is printed in full: open what matters with `earmark show KEY -f <fields>,comments --new` or
