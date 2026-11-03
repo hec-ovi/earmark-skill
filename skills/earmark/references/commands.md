@@ -227,17 +227,24 @@ ui-ux                         UI & UX                   14 open
 | `earmark triage [--limit N]` | pm view: untriaged backlog, unassigned todo, stale claims, exhausted reviews (parked after `max_review_rounds` rejects), review queue age, blocked, overdue, idle agents; at most N rows per section (default 10), a cut section ends with `+4 more: earmark ls -s todo -a none` (the call that lists it all); columns that are the same on every row are left out |
 
 ```
-check: nothing new since 14:05:09Z · holding GAME-1 (lease 1h40m) · todo for you: 9
+check: nothing new since 14:05:09Z · holding GAME-1 (lease 1h40m) · ready for you: 9
 ```
 
 ```
-check: since 14:05:09Z · holding GAME-1 (lease 1h40m) · todo for you: 10
+check: since 14:05:09Z · holding GAME-1 (lease 1h40m) · ready for you: 10 · 1 waiting on blockers
 GAME-77  new for you (assigned by grok-pm) · high · blocks:1
 GAME-3   rejected (codex-review) · 2 new comments
 GAME-1   1 new comment, question for you · 1 new file
 GAME-12  unblocked (GAME-31 done)
 GAME-9   priority medium→high · title changed
 ```
+
+The header counts what `next` could claim now (`ready for you`: todo assigned to you or
+unassigned, and stale claims, in your scope, with no open blocker) and, when some of your
+assigned issues wait on open blockers, `M waiting on blockers`; a reviewer's header counts what
+`next --review` could claim instead (`reviews waiting: N`). `--json` carries all of them
+(`ready_for_you`, `waiting_on_blockers`, `reviews_waiting`; `todo_for_you` is an alias of
+`ready_for_you`).
 
 One line per issue that changed, issues that need you first (new for you, a question for you,
 rejected, unblocked), then by priority; at most 10 lines, then `+N more`. Status and priority
