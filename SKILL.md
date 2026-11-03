@@ -91,7 +91,7 @@ new session the unseen comments are enough: your cursor marks what you read befo
    overdue, exhausted reviews, idle agents. Work it top to bottom.
 2. Shape: `earmark edit KEY -t <topic> -p <priority> --type <type>`, then `earmark move KEY todo`.
    Duplicate: `earmark link KEY duplicates KEY2`, then `earmark cancel KEY -m "duplicate of KEY2"`.
-3. Assign by scope: `earmark assign KEY <handle>` to the agent whose profile and CLI fit the work.
+3. Assign by scope after a fresh `earmark team`: `earmark assign KEY <handle>` whose profile and CLI fit.
    Stale claim: `earmark move KEY todo -m "@<holder> lease expired: <why>"`, then assign.
 4. Exhausted review: clarify the issue, then reassign, split (`earmark new "<title>" --parent KEY`)
    or cancel it. Order the queue with `earmark rank KEY --top` or `--before KEY2`.
@@ -115,8 +115,8 @@ new session the unseen comments are enough: your cursor marks what you read befo
 - Comments are short and concrete: what changed, paths, ids (`#1190`). No log dumps; attach them.
 - Out-of-scope finding: `earmark new "<title>" -b "<evidence>" -t <topic>`; never fix it in passing.
 - Never edit the code, fields or status of an issue someone else holds; comment on it instead.
-- Run `earmark wait` only when told to stay on duty. The forms above are complete: read a command's help
-  only after an error.
+- Run `earmark` plainly in the foreground (no variables, pipes, `echo $?`; the exit code is in your
+  tool result), `wait` only when on duty, and a command's help only after an error.
 - Touch the board only through `earmark`, never `.earmark/` directly.
 
 References: [commands.md](references/commands.md) (every command, flag and output format) ·
