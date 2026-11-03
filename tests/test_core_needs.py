@@ -202,13 +202,12 @@ class OfflineAssignees(NeedCase):
         self.assertEqual(w2.claim(a)["assignee"], "w2")
         self.assertEqual(w2.move(b, "in_progress")["assignee"], "w2")
 
-    def test_any_command_brings_an_agent_back(self):
+    def test_a_write_brings_an_agent_back_a_read_does_not(self):
         w1 = self.agent("w1")
         w1.leave()
         self.assertFalse(self.agent_row("w1")["online"])
-        w1.touch()
-        self.assertTrue(self.agent_row("w1")["online"])
-        w1.leave()
+        w1.touch()  # what every read command with --as does
+        self.assertFalse(self.agent_row("w1")["online"])
         w1.add_comment(self.issue("x")["key"], "back")
         self.assertTrue(self.agent_row("w1")["online"])
 

@@ -66,6 +66,38 @@ class TeamTests(CliBoardCase):
                          (True, "codex-qa", "codex-qa"))
         self.assertIn("error:", self.fails(2, "join", "nope", as_="x-1"))
 
+    def test_join_resumes_the_seat_its_cli_left(self):
+        self.assertTrue(self.ok("join", "reviewer", "--cli", "claude-code").startswith(
+            "you are reviewer-1 · profile reviewer"))
+        self.ok("leave", as_="reviewer-1")
+        out = self.ok("join", "reviewer", "--cli", "claude-code").splitlines()
+        self.assertEqual(out[:2], ["you are reviewer-1 (resumed) · profile reviewer (reviewer) · board GAME",
+                                   "pass --as reviewer-1 on every earmark command"])
+        self.assertTrue(self.ok("join", "reviewer", as_="reviewer-1").startswith(
+            "you are reviewer-1 · "))  # already online: no resume to announce
+        self.assertTrue(self.ok("join", "reviewer", "--cli", "codex").startswith("you are reviewer-2 · "))
+        self.assertTrue(self.ok("join", "reviewer", "--cli", "claude-code").startswith(
+            "you are reviewer-3 · "))  # reviewer-1 is online: never shared
+        env = self.json("join", "reviewer")
+        self.assertEqual(env["data"]["agent"]["handle"], "reviewer-4")  # no --cli: mint as before
+
+    def test_reads_do_not_bring_back_an_agent_that_left(self):
+        self.ok("join", "worker", "--cli", "codex", as_="worker-1")
+        self.ok("leave", as_="worker-1")
+        self.advance(minutes=3)
+
+        def row() -> list[str]:
+            team = self.ok("team", as_="worker-1").splitlines()
+            return next(ln.split() for ln in team if ln.startswith("worker-1 "))
+
+        self.assertEqual(row(), ["worker-1", "worker", "worker", "codex", "3m", "offline", "-"])
+        self.assertIn("state: offline", self.ok("whoami", as_="worker-1"))
+        self.ok("check", as_="worker-1")
+        self.ok("ls", as_="worker-1")
+        self.assertEqual(row()[4:6], ["3m", "offline"])
+        self.ok("new", "back at it", as_="worker-1")  # a write brings it back
+        self.assertEqual(row()[4:6], ["0s", "active"])
+
     def test_team_whoami_leave(self):
         self.ok("join", "worker", "--cli", "claude-code", as_="claude-ui")
         self.ok("join", "reviewer", "--cli", "codex", as_="codex-qa")

@@ -184,6 +184,75 @@ class JoinLeave(BoardCase):
         self.assertEqual(self.board.get_issue(key)["assignee"], "w1")
 
 
+class Resume(BoardCase):
+    """`join PROFILE --cli C` without a handle resumes the seat a session of C left."""
+
+    def fresh(self, profile: str, cli: str | None = None) -> str:
+        """A new session (no handle, no actor) joins; returns the handle it got."""
+        return self.open_as(None).join(profile, cli=cli)["agent"]["handle"]
+
+    def test_resume_after_leave_on_the_same_cli(self):
+        b = self.board
+        first = self.open_as(None)
+        self.assertEqual(first.join("reviewer", cli="claude-code")["agent"]["handle"], "reviewer-1")
+        self.assertEqual(first.join_action, "join")
+        w1 = self.agent("w1")
+        key = self.issue("feature")["key"]
+        w1.claim(key)
+        w1.submit_review(key, note="ready")
+        self.assertEqual(first.next()["key"], key)
+        first.reject(key, note="fails on reload")
+        first.list_comments(key, new=True)
+        parked = self.issue("parked")["key"]
+        b.assign(parked, "reviewer-1")
+        b.move(parked, "blocked")  # leave keeps blocked work on its handle
+        first.leave()
+        self.clock.advance(minutes=30)
+        b.add_comment(parked, "unblocks tomorrow")  # while it was away
+        later = self.open_as(None)
+        brief = later.join("reviewer", cli="claude-code")
+        self.assertEqual((brief["agent"]["handle"], brief["agent"]["online"], later.actor,
+                          later.join_action), ("reviewer-1", True, "reviewer-1", "rejoin"))
+        self.assertEqual(([i["key"] for i in brief["assigned"]], brief["inbox_new"]), ([parked], 1))
+        log = [(e["actor"], e["action"], e["new"]) for e in b.activity()["items"]
+               if e["action"] in ("join", "rejoin")]
+        self.assertEqual(log[0], ("reviewer-1", "rejoin", "reviewer cli=claude-code"))
+        self.assertEqual(later.list_comments(key, new=True)["items"], [])  # issue cursor kept
+        feed = later.check()  # check cursor kept: what changed while it was away
+        self.assertEqual([c["key"] for c in feed["changed"]], [parked])
+        self.assertEqual(self.fresh("reviewer", "claude-code"), "reviewer-2")  # it is online again
+
+    def test_no_resume_across_clis_or_profiles(self):
+        codex = self.open_as(None)
+        self.assertEqual(codex.join("worker", cli="codex")["agent"]["handle"], "worker-1")
+        codex.leave()
+        self.assertEqual(self.fresh("worker", "grok"), "worker-2")
+        self.assertEqual(self.fresh("reviewer", "codex"), "reviewer-1")
+        self.assertEqual(self.fresh("worker"), "worker-3")  # no --cli: a new handle, as before
+        gone = {a["handle"]: (a["online"], a["cli"]) for a in self.board.team()["agents"]}
+        self.assertEqual(gone["worker-1"], (False, "codex"))
+        self.assertEqual(self.fresh("worker", "codex"), "worker-1")
+
+    def test_no_resume_of_an_online_handle(self):
+        self.assertEqual(self.fresh("worker", "codex"), "worker-1")
+        second = self.open_as(None)
+        self.assertEqual(second.join("worker", cli="codex")["agent"]["handle"], "worker-2")
+        self.assertEqual(second.join_action, "join")
+        online = {a["handle"]: a["online"] for a in self.board.team()["agents"]}
+        self.assertEqual((online["worker-1"], online["worker-2"]), (True, True))
+
+    def test_two_offline_matches_resume_the_most_recently_seen(self):
+        seats = {}
+        for _ in range(3):
+            agent = self.open_as(None)
+            seats[agent.join("worker", cli="codex")["agent"]["handle"]] = agent
+        for handle in ("worker-1", "worker-3", "worker-2"):  # left at 09:00, 09:05, 09:10
+            seats[handle].leave()
+            self.clock.advance(minutes=5)
+        self.assertEqual([self.fresh("worker", "codex") for _ in range(4)],
+                         ["worker-2", "worker-3", "worker-1", "worker-4"])
+
+
 class Presence(BoardCase):
     def test_active_idle_offline_and_working_lists(self):
         w1, r1 = self.agent("w1"), self.agent("r1", "reviewer")
@@ -251,6 +320,27 @@ class Touch(BoardCase):
         self.clock.advance(minutes=5)
         w1.create_issue("x")
         self.assertEqual(self.last_seen("w1"), "2026-11-03T09:05:00Z")
+
+    def test_reads_never_bring_back_an_agent_that_left(self):
+        w1 = self.agent("w1")
+        self.clock.advance(minutes=5)
+        w1.leave()
+        watcher = self.open_as(None)
+        version = watcher.data_version()
+        self.clock.advance(minutes=10)
+        w1.touch()  # every read command with --as
+        w1.whoami()
+        self.assertEqual(watcher.data_version(), version)  # no write at all
+        w1.check()  # its cursor moves, the agent stays where it was
+        w1.touch()
+        state = {a["handle"]: a for a in self.board.team()["agents"]}["w1"]
+        self.assertEqual((state["online"], state["presence"], state["last_seen"]),
+                         (False, "offline", "2026-11-03T09:05:00Z"))
+        self.clock.advance(minutes=1)
+        w1.create_issue("back")  # a write does
+        state = {a["handle"]: a for a in self.board.team()["agents"]}["w1"]
+        self.assertEqual((state["online"], state["presence"], state["last_seen"]),
+                         (True, "active", "2026-11-03T09:16:00Z"))
 
 
 class Identity(BoardCase):
