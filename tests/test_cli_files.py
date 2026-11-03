@@ -57,7 +57,8 @@ class RenderTests(unittest.TestCase):
         self.assertEqual(R.issue_flags(summary(attachment_count=2, comment_count=0, due=None), DAY), ["a:2"])
         self.assertEqual(R.render_fields(issue(attachments=SAMPLE, attachment_count=2),
                                          R.show_fields("attachment_count,attachments")),
-                         "attachment_count: 2\nattachments: @12, @13")
+                         "attachment_count: 2\n" + contract_block("ID   KIND"))
+        self.assertEqual(R.render_fields(issue(attachments=[]), ["attachments"]), "attachments: none")
 
     def test_comment_header(self):
         c = comment(1190, "codex-qa", "note", "see", "2026-11-03T15:10:44Z", reply_to=1187)

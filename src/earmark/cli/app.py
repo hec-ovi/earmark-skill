@@ -20,16 +20,21 @@ from earmark.cli.render import PLAIN, Style, escape_controls
 
 
 class Result:
-    """What a command hands back: JSON data plus a lazily rendered text form."""
+    """What a command hands back: JSON data plus a lazily rendered text form.
 
-    __slots__ = ("data", "text", "code", "stream")
+    `error` marks a partial answer (some keys of a several-key show missing; a handoff whose
+    `--next` found nothing): text mode prints the text and then the error, `--json` prints the
+    error envelope (the answered part goes in its details), and the exit code is the error's."""
+
+    __slots__ = ("data", "text", "code", "stream", "error")
 
     def __init__(self, data: Any, text: str | Callable[[], str] | None = None, *, code: int = 0,
-                 stream: str = "stdout") -> None:
+                 stream: str = "stdout", error: EarmarkError | None = None) -> None:
         self.data = data
         self.text = text
         self.code = code
         self.stream = stream
+        self.error = error
 
 
 class Context:
@@ -216,14 +221,23 @@ def run(argv: list[str] | None = None) -> int:
             return e.status
         ctx = Context(ns, command)
         result = handler_for(command)(ctx, ns)
+        error = result.error
         if ctx.json:
+            if error is not None:
+                _write(sys.stdout, dump_json(envelope(command, error=error.to_dict(), board=ctx.prefix,
+                                                      actor=ctx.actor), ctx.tty))
+                return error.exit_code
             _write(sys.stdout, dump_json(envelope(command, data=result.data, board=ctx.prefix,
                                                   actor=ctx.actor), ctx.tty))
-        else:
-            text = result.text() if callable(result.text) else result.text
-            if text:
-                _write(sys.stdout if result.stream == "stdout" else sys.stderr,
-                       escape_controls(text, color=ctx.style.color))
+            return result.code
+        text = result.text() if callable(result.text) else result.text
+        if text:
+            _write(sys.stdout if result.stream == "stdout" else sys.stderr,
+                   escape_controls(text, color=ctx.style.color))
+        if error is not None:
+            if error.code != "empty":  # an empty answer is part of the text already
+                _write_error(error)
+            return error.exit_code
         return result.code
     except EarmarkError as e:
         return _fail(e, command, ctx, json_mode)
@@ -264,10 +278,15 @@ def _fail(e: EarmarkError, command: str, ctx: Context | None, json_mode: bool) -
         from earmark.cli.common import empty_text
         _write(sys.stdout, escape_controls(empty_text(command, e, ctx)))
         return e.exit_code
+    _write_error(e)
+    return e.exit_code
+
+
+def _write_error(e: EarmarkError) -> None:
+    """`error:` / `hint:` lines on stderr."""
     color = _isatty(sys.stderr) and not os.environ.get("NO_COLOR") and os.environ.get("TERM") != "dumb"
     style = Style(True) if color else PLAIN
     lines = [f"{style.paint('error:', '1;31')} {e.message}"]
     if e.hint:
         lines.append(f"{style.dim('hint:')} {e.hint}")
     _write(sys.stderr, escape_controls("\n".join(lines), color=color))
-    return e.exit_code

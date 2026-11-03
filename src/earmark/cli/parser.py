@@ -22,7 +22,7 @@ GROUPS = ("Read", "Work", "Write", "Files", "Topics", "Team", "Board")
 COMMANDS: dict[str, tuple[str, str]] = {
     "topics": ("Read", "topic tree with open counts"),
     "ls": ("Read", "list issues, one line each"),
-    "show": ("Read", "one issue: fields, description, comment count, last comment id"),
+    "show": ("Read", "issues: fields, description, comment count; -f picks fields and parts"),
     "comments": ("Read", "comments on an issue, oldest first"),
     "inbox": ("Read", "new comments for you across issues; advances your cursor"),
     "next": ("Work", "pick and claim the best issue in your scope (exit 4 when none)"),
@@ -277,10 +277,16 @@ def b_ls(p):
 
 
 def b_show(p):
-    _key(p)
-    p.add_argument("-f", "--fields", metavar="FIELDS", help="print only these `field: value` lines")
+    p.add_argument("keys", nargs="+", metavar="KEY", help="one or more issue keys: GAME-42, game-42 or 42")
+    p.add_argument("-f", "--fields", metavar="FIELDS",
+                   help="only these, in this order: fields (status, title, assignee, ...) and "
+                        "parts (body, comments, attachments, links, children)")
     p.add_argument("-c", "--comments", nargs="?", type=int, const=5, metavar="N",
-                   help="append the last N comments (default 5)")
+                   help="add the last N comments (default 5)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--new", action="store_true", help="comments: the ones you have not seen (advances your cursor)")
+    g.add_argument("--since", metavar="ID", help="comments: everything after comment ID")
+    p.add_argument("--last", type=int, metavar="N", help="comments: the latest N (default 5)")
 
 
 def b_comments(p):

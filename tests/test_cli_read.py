@@ -92,8 +92,10 @@ class ShowTests(unittest.TestCase):
         self.assertEqual(out, "status: in_progress\nassignee: claude-ui\nversion: 7\n")
         with fake_board():
             _, out, _ = run_main(["show", "42", "-f", "status,blocked_by,children", "--json"])
-        self.assertEqual(json.loads(out)["data"], {"status": "in_progress", "blocked_by": ["GAME-77"],
-                                                   "children": ["GAME-43", "GAME-44"]})
+        data = json.loads(out)["data"]
+        self.assertEqual(list(data), ["status", "blocked_by", "children"])
+        self.assertEqual((data["status"], data["blocked_by"]), ("in_progress", ["GAME-77"]))
+        self.assertEqual([c["key"] for c in data["children"]], ["GAME-43", "GAME-44"])
         with fake_board():
             code, _, err = run_main(["show", "42", "-f", "statu"])
         self.assertEqual(code, 1)

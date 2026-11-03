@@ -135,9 +135,15 @@ class ShowTests(unittest.TestCase):
         fields = R.show_fields("status,assignee,version")
         self.assertEqual(R.render_fields(it, fields),
                          "status: in_progress\nassignee: claude-ui\nversion: 7")
-        self.assertEqual(R.render_fields(it, R.show_fields("children,blocks,stale,labels,body")),
-                         "children: GAME-43, GAME-44\nblocks: GAME-51\nstale: false\n"
-                         "labels: regression\nbody: first\n  second")
+        self.assertEqual(R.render_fields(it, R.show_fields("blocks,stale,labels,body")),
+                         "blocks: GAME-51\nstale: false\nlabels: regression\nbody: first\n  second")
+        self.assertEqual(R.render_fields(it, R.show_fields("sub")),
+                         "KEY      STATUS       PRIO  ASSIGNEE   TITLE\n"
+                         "GAME-43  in_progress  high  claude-ui  a\n"
+                         "GAME-44  in_progress  high  claude-ui  b")
+        self.assertEqual(R.render_fields(it, ["links"]), "blocks: GAME-51 (todo)\nblocked by: GAME-77 (done)")
+        self.assertEqual(R.render_fields(issue(links={}, children=[], body=""), ["links", "children", "body"]),
+                         "links: none\nchildren: none\nbody: -")
         self.assertEqual(R.render_fields(it, ["reviewer", "due"]), "reviewer: -\ndue: 2026-11-07")
         with self.assertRaises(ValueError):
             R.show_fields("status,nope")

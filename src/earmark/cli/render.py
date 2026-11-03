@@ -411,8 +411,10 @@ def attachments_summary(issue: dict) -> str:
     return f"attachments: {len(items)} ({', '.join(parts)})"
 
 
-def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None) -> str:
-    """`earmark show` (and `next`) text, exactly the commands.md layout."""
+def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None,
+                comments: dict | None = None) -> str:
+    """`earmark show` (and `next`) text, exactly the commands.md layout, then the comments
+    picked (see comment_part; default: the issue's `comments`, the last N)."""
     day = day or today()
     g = "   "
     due = dash(issue.get("due"))
@@ -446,30 +448,34 @@ def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None) ->
     lines.append("")
     body = issue.get("body") or ""
     lines.append(body.rstrip("\n") if body.strip() else style.dim("(no description)"))
-    recent = issue.get("comments")
-    if recent:
+    sel = comments if comments is not None else (
+        {"items": issue["comments"], "mode": "last"} if issue.get("comments") else None)
+    if sel and sel.get("items"):  # the full view leaves out an empty selection
         lines.append("")
-        total = issue.get("comment_count") or len(recent)
-        lines.append(style.dim(f"last {len(recent)} of {plural(total, 'comment')}:")
-                     if style.color else f"last {len(recent)} of {plural(total, 'comment')}:")
-        for c in recent:
-            lines.extend(comment_lines(c, style=style))
+        lines.extend(comment_part(issue, sel, style=style))
     return "\n".join(lines)
 
 
-SHOW_FIELDS = ("key", "title", "body", "status", "priority", "effective_priority", "blocks_open",
-               "type", "topic", "assignee",
-               "reviewer", "reporter", "labels", "due", "parent", "children", "blocks",
-               "blocked_by", "duplicates", "relates", "lease_until", "stale", "version",
-               "created_at", "updated_at", "started_at", "review_requested_at", "resolved_at",
-               "comment_count", "last_comment_id", "new_comments", "attachment_count",
-               "attachments")
+# `show -f`: scalar fields print as `field: value`; parts print as their own lines
+SHOW_SCALARS = ("key", "id", "title", "status", "priority", "effective_priority", "type", "topic",
+                "assignee", "reviewer", "reporter", "labels", "due", "parent", "blocked",
+                "blocks_open", "lease_until", "stale", "rank", "version", "created_at", "updated_at",
+                "started_at", "review_requested_at", "resolved_at", "comment_count",
+                "last_comment_id", "new_comments", "attachment_count",
+                "blocks", "blocked_by", "duplicates", "duplicated_by", "relates")
+SHOW_PARTS = ("body", "comments", "attachments", "links", "children")
+SHOW_FIELDS = SHOW_SCALARS + SHOW_PARTS
 SHOW_ALIASES = {"sub": "children", "prio": "priority", "created": "created_at",
-                "updated": "updated_at", "lease": "lease_until", "comments": "comment_count",
-                "description": "body", "blocked-by": "blocked_by", "label": "labels"}
+                "updated": "updated_at", "lease": "lease_until", "description": "body",
+                "blocked-by": "blocked_by", "label": "labels", "files": "attachments",
+                "effective": "effective_priority", "eprio": "effective_priority",
+                "holds": "blocks_open", "last_comment": "last_comment_id"}
+LINK_KINDS = (("blocks", "blocks"), ("blocked_by", "blocked by"), ("duplicates", "duplicates"),
+              ("duplicated_by", "duplicated by"), ("relates", "relates"))
 
 
 def show_fields(spec: str) -> list[str]:
+    """Parse -f in the order given; raises ValueError naming the unknown field."""
     out = []
     for raw in spec.split(","):
         name = raw.strip().lower()
@@ -484,30 +490,119 @@ def show_fields(spec: str) -> list[str]:
 
 
 def field_value(issue: dict, name: str) -> Any:
-    if name == "children":
-        return _children_keys(issue)
-    if name in ("blocks", "blocked_by", "duplicates", "relates"):
+    """The JSON value of one `-f` field or part."""
+    if name in ("blocks", "blocked_by", "duplicates", "duplicated_by", "relates"):
         return _links(issue, name)
-    if name == "attachments":
-        return [f"@{a.get('id')}" for a in issue.get("attachments") or []]
+    if name == "links":
+        return {kind: _links(issue, kind) for kind, _ in LINK_KINDS}
+    if name == "children":
+        kids = issue.get("children")
+        return kids if isinstance(kids, list) else []
+    if name in ("attachments", "comments"):
+        return list(issue.get(name) or [])
     return issue.get(name)
 
 
-def render_fields(issue: dict, fields: Iterable[str]) -> str:
-    """`show -f a,b`: one `field: value` line each; multi-line values continue indented."""
-    out = []
+def comment_part(issue: dict, sel: dict | None, *, style: Style = PLAIN) -> list[str]:
+    """Comments picked by show/next: a heading that says which, the comments, and the call
+    for the rest when the page was cut. sel: {items, mode: new|since|last, since, last_id,
+    has_more}."""
+    sel = sel or {"items": list(issue.get("comments") or []), "mode": "last"}
+    items, mode = sel.get("items") or [], sel.get("mode") or "last"
+    if not items:
+        if mode == "new":
+            after = sel.get("last_id")
+            return [f"comments: nothing new after #{after}" if after else "comments: nothing new"]
+        if mode == "since":
+            return [f"comments: nothing after #{sel.get('since')}"]
+        return ["comments: none"]
+    if mode == "new":
+        head = f"{plural(len(items), 'new comment')}:"
+    elif mode == "since":
+        head = f"{plural(len(items), 'comment')} after #{sel.get('since')}:"
+    else:
+        total = max(issue.get("comment_count") or 0, len(items))
+        head = f"last {len(items)} of {plural(total, 'comment')}:"
+    lines = [style.dim(head) if style.color else head]
+    for c in items:
+        lines.extend(comment_lines(c, style=style))
+    if sel.get("has_more"):
+        key = issue.get("key", "KEY")
+        lines.append(f"more: earmark comments {key} --new" if mode == "new"
+                     else f"more: earmark comments {key} --since {items[-1].get('id')}")
+    return lines
+
+
+def part_lines(issue: dict, name: str, *, comments: dict | None = None,
+               style: Style = PLAIN) -> list[str]:
+    """One `show -f` part: body, comments, attachments (the table), links, children."""
+    if name == "body":
+        body = lines_of(issue.get("body"))
+        if not body:
+            return ["body: -"]
+        return [f"body: {body[0]}".rstrip()] + [("  " + ln) if ln.strip() else "" for ln in body[1:]]
+    if name == "comments":
+        return comment_part(issue, comments, style=style)
+    if name == "attachments":
+        items = issue.get("attachments") or []
+        return render_attachments(items, style=style).split("\n")
+    if name == "links":
+        lines = [f"{label}: {', '.join(with_status(issue, keys))}"
+                 for kind, label in LINK_KINDS if (keys := _links(issue, kind))]
+        return lines or ["links: none"]
+    if name == "children":
+        kids = [k for k in field_value(issue, "children") if isinstance(k, dict)]
+        if not kids:
+            return ["children: none"]
+        return summary_rows(kids, style=style, fields=("key", "status", "priority", "assignee", "title"))
+    return [f"{name}: {dash(field_value(issue, name))}"]
+
+
+def render_fields(issue: dict, fields: Iterable[str], *, comments: dict | None = None,
+                  style: Style = PLAIN) -> str:
+    """`show KEY -f a,b`: in the order asked, `field: value` per scalar field and each part's
+    lines (bodies continue indented)."""
+    out: list[str] = []
     for name in fields:
-        value = field_value(issue, name)
-        if name == "body":
-            body = lines_of(value)
-            if not body:
-                out.append("body: -")
-                continue
-            out.append(f"body: {body[0]}".rstrip())
-            out.extend(("  " + ln) if ln.strip() else "" for ln in body[1:])
-            continue
-        out.append(f"{name}: {dash(value)}")
+        if name in SHOW_PARTS:
+            out.extend(part_lines(issue, name, comments=comments, style=style))
+        else:
+            out.append(f"{name}: {dash(field_value(issue, name))}")
     return "\n".join(out)
+
+
+def show_line(issue: dict, scalars: Iterable[str], *, key_width: int = 0,
+              style: Style = PLAIN) -> str:
+    """`GAME-42  status: in_progress  assignee: claude-ui`: one issue of a several-key show."""
+    key = str(issue.get("key") or "?")
+    cells = [f"{name}: {dash(field_value(issue, name))}" for name in scalars if name != "key"]
+    if not cells:
+        return style.bold(key)
+    return style.bold(key) + " " * (max(key_width, len(key)) - len(key) + 2) + "  ".join(cells)
+
+
+def render_show_many(issues: list[dict], fields: list[str] | None, *,
+                     comments: list[dict | None] | None = None, style: Style = PLAIN,
+                     day: str | None = None) -> str:
+    """Several keys. Scalar fields only: one line per issue. With parts (or the full view):
+    one block per issue, the key line with its scalar fields first, blocks separated by a
+    blank line."""
+    comments = comments or [None] * len(issues)
+    if fields is None:
+        return "\n\n".join(render_show(i, style=style, day=day, comments=c)
+                            for i, c in zip(issues, comments))
+    scalars = [f for f in fields if f not in SHOW_PARTS]
+    parts = [f for f in fields if f in SHOW_PARTS]
+    width = max(len(str(i.get("key") or "?")) for i in issues)
+    if not parts:
+        return "\n".join(show_line(i, scalars, key_width=width, style=style) for i in issues)
+    blocks = []
+    for issue, sel in zip(issues, comments):
+        lines = [show_line(issue, scalars, style=style)]
+        for name in parts:
+            lines.extend(part_lines(issue, name, comments=sel, style=style))
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
 
 
 # ---- comments and inbox ------------------------------------------------------------------
