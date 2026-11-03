@@ -30,10 +30,11 @@ is plain text sized for agents; errors print `error:` and a `hint:` to run next.
 
 ## Start
 
-1. `earmark info`. Command not found: use the `earmark` launcher beside this file. Neither: ask
-   the user to run `uv tool install git+https://github.com/hec-ovi/earmark-skill`. Never install it yourself.
+1. `earmark info`. Command not found: ask the user to run
+   `uv tool install git+https://github.com/hec-ovi/earmark-skill`. Never install it yourself.
 2. `earmark join <profile> --cli <claude-code|codex|grok|agy|opencode>` with the profile the user
    named, else `worker`. The briefing prints your handle, role prompt, scope and loop: follow them.
+   The same command in a later session resumes your handle (`(resumed)`) with its work and cursors.
    On `no board`, run `earmark init` only if the user asks for one.
 3. Pass `--as <handle>` on every later command; each shell call starts clean. Lost it: `earmark team`.
 
@@ -48,7 +49,8 @@ is plain text sized for agents; errors print `error:` and a `hint:` to run next.
 | One area, rarely | `earmark topics PATH --depth 2` · `earmark ls -t PATH --ready` |
 
 Run `earmark check` when a command ends with `· N changes for you`, and between issues. Never list
-the whole board, never re-read what you already saw, and read only the code your issue names.
+the whole board, never re-read what you already saw, and read only the code your issue names. In a
+new session the unseen comments are enough: your cursor marks what you read before.
 
 ## Worker loop
 
@@ -56,15 +58,15 @@ the whole board, never re-read what you already saw, and read only the code your
 2. Work that issue alone. On long work, `earmark comment KEY "<done, next>" --kind progress` every
    30 to 60 min: it renews your lease (120 min by default); a silent claim goes stale and is taken.
 3. Needs something only another specialist makes (an image, audio, copy):
-   `earmark need KEY "<what, format, where it goes>" -t <topic> [--assign <handle>]`. KEY is parked
-   and returns to your `next` when that issue is done; go to 1.
+   `earmark need KEY "<short title>" -t <topic> -b "<format, size, where it goes>" [--assign <handle>]`.
+   KEY is parked and returns to your `next` when that issue is done; go to 1.
    Needs a decision: `earmark comment KEY "<question>" --kind question` with `@<handle>`; go on with
    what you can. Blocked by something outside the board: `earmark move KEY blocked -m "<what>"`.
 4. Done: deliverables first (`earmark attach KEY FILE…`), then
    `earmark review KEY -m "<what changed> · <files> · <how to verify>" --next`: it hands off and
    claims your next issue in the same call. Exit 4: go to 6.
-5. A resumed issue shows `blocked by: KEY2 (done)`: get its result with
-   `earmark show KEY2 -f comments,attachments --last 3`.
+5. A resumed issue shows `blocked by: KEY2 (done)`: `earmark show KEY2 -f comments,attachments --last 3`,
+   then open the printed paths.
 6. `earmark next --review` claims someone else's handoff (never yours); review it as below.
 7. Still exit 4: `earmark check` and handle what needs you (questions, rejections).
 8. Nothing left: `earmark leave`, then report in three lines: done, in review, open or blocked.
@@ -86,7 +88,7 @@ the whole board, never re-read what you already saw, and read only the code your
 2. Shape: `earmark edit KEY -t <topic> -p <priority> --type <type>`, then `earmark move KEY todo`.
    Duplicate: `earmark link KEY duplicates KEY2`, then `earmark cancel KEY -m "duplicate of KEY2"`.
 3. Assign by scope: `earmark assign KEY <handle>` to the agent whose profile and CLI fit the work.
-   Stale claim: `earmark move KEY todo -m "<why>"`, then assign.
+   Stale claim: `earmark move KEY todo -m "@<holder> lease expired: <why>"`, then assign.
 4. Exhausted review: clarify the issue, then reassign, split (`earmark new "<title>" --parent KEY`)
    or cancel it. Order the queue with `earmark rank KEY --top` or `--before KEY2`.
 5. Triage clean: `earmark leave` and a three-line summary, or wait as in worker step 8.
@@ -109,6 +111,8 @@ the whole board, never re-read what you already saw, and read only the code your
 - Comments are short and concrete: what changed, paths, ids (`#1190`). No log dumps; attach them.
 - Out-of-scope finding: `earmark new "<title>" -b "<evidence>" -t <topic>`; never fix it in passing.
 - Never edit the code, fields or status of an issue someone else holds; comment on it instead.
+- Run `earmark wait` only when told to stay on duty. The forms above are complete: read a command's help
+  only after an error.
 - Touch the board only through `earmark`, never `.earmark/` directly.
 
 References: [commands.md](references/commands.md) (every command, flag and output format) ·
