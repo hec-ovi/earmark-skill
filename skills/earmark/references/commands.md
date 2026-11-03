@@ -59,11 +59,31 @@ comments: 12, last #1199, 3 new for you
 <description>
 ```
 
-`-f status,assignee,version` prints only `field: value` lines. Fields: key, title, body,
-status, priority, type, topic, assignee, reviewer, reporter, labels, due, parent, children,
-blocks, blocked_by, duplicates, relates, lease_until, stale, version, created_at, updated_at,
-started_at, review_requested_at, resolved_at, comment_count, last_comment_id, new_comments.
-`-c [N]` appends the last N comments (default 5).
+`show KEY… [-f FIELDS] [--new | --since ID | --last N]` picks exactly the parts you need, in the
+order you name them. Several keys in one call save tool calls.
+
+| Ask for | Command | Prints |
+|---|---|---|
+| one field | `earmark show GAME-42 -f status` | `status: in_progress` |
+| a few fields | `earmark show GAME-42 -f status,title,assignee` | `field: value` lines |
+| fields + new comments | `earmark show GAME-42 -f status,title,comments --new` | the lines, then the unseen comments |
+| only the files | `earmark show GAME-42 -f attachments` | the attachments table |
+| many issues | `earmark show GAME-42 GAME-43 GAME-51 -f status,assignee` | one line per issue |
+
+```
+GAME-42  status: in_progress  assignee: claude-ui
+GAME-43  status: todo  assignee: -
+GAME-51  status: blocked  assignee: codex-api
+```
+
+Scalar fields: key, title, status, priority, effective_priority, type, topic, assignee, reviewer,
+reporter, labels, due, parent, lease_until, stale, version, created_at, updated_at, started_at,
+review_requested_at, resolved_at, comment_count, last_comment_id, new_comments, attachment_count.
+Parts: `body` (alias `description`), `comments` (honours `--new`, `--since ID`, `--last N`;
+default the last 5), `attachments`, `links` (blocks, blocked by, duplicates, relates), `children`.
+`-c [N]` is short for adding `comments --last N` to whatever `-f` selects. With several keys and
+only scalar fields, output is one line per issue; with parts, each issue is a block separated by
+a blank line. `--json` returns the same selection as objects.
 
 ### `comments`
 
