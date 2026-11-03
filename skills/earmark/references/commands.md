@@ -95,7 +95,7 @@ Covers issues you are assignee, reviewer or reporter of, have commented on, or a
 | `earmark approve KEY [-m NOTE]` | reviewer: in_review → done, `approval` comment |
 | `earmark reject KEY -m NOTE` | reviewer: in_review → todo for the same assignee, `changes` comment |
 | `earmark done KEY [-m NOTE]` | close directly (owner, pm, or boards without required review) |
-| `earmark move KEY STATUS [-m NOTE]` | any allowed transition (see ARCHITECTURE) |
+| `earmark move KEY STATUS [-m NOTE]` | any allowed transition (see [workflow.md](workflow.md)) |
 | `earmark reopen KEY -m NOTE` · `earmark cancel KEY -m NOTE` | done/canceled → todo · → canceled |
 
 `next` prints the claimed issue in `show` format. With nothing to claim (exit 4):
