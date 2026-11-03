@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import sys
 import shutil
 import tempfile
 import time
@@ -22,6 +23,20 @@ WORKERS = 12
 REVIEWERS = 4
 ISSUES = 72
 DEADLINE_S = 120
+
+
+
+def _finish(results) -> None:
+    """Flush the result queue, then end the child.
+
+    Windows on Python 3.10 intermittently crashes with an access violation during interpreter
+    shutdown of these spawn children, after every result has been delivered and checked. The
+    CLI's own subprocess tests pass there; on that platform only, skip the shutdown phase.
+    """
+    results.close()
+    results.join_thread()
+    if sys.platform == "win32" and sys.version_info < (3, 11):
+        os._exit(0)
 
 
 def _worker(path: str, handle: str, start, results) -> None:
@@ -47,9 +62,7 @@ def _worker(path: str, handle: str, start, results) -> None:
     except Exception:  # reported to the parent, which fails the test
         out["errors"].append(traceback.format_exc())
     results.put(out)
-    # Flush the queue's feeder thread before interpreter shutdown (Windows, Python 3.10).
-    results.close()
-    results.join_thread()
+    _finish(results)
 
 
 def _reviewer(path: str, handle: str, start, results) -> None:
@@ -76,9 +89,7 @@ def _reviewer(path: str, handle: str, start, results) -> None:
     except Exception:
         out["errors"].append(traceback.format_exc())
     results.put(out)
-    # Flush the queue's feeder thread before interpreter shutdown (Windows, Python 3.10).
-    results.close()
-    results.join_thread()
+    _finish(results)
 
 
 INIT_RACERS = 8
@@ -95,9 +106,7 @@ def _init_racer(dirs: list, barrier, results) -> None:
         except Exception as exc:  # the parent checks every outcome
             out.append((type(exc).__name__, getattr(exc, "message", str(exc))))
     results.put(out)
-    # Flush the queue's feeder thread before interpreter shutdown (Windows, Python 3.10).
-    results.close()
-    results.join_thread()
+    _finish(results)
 
 
 class InitRace(unittest.TestCase):
