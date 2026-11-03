@@ -22,7 +22,7 @@ function blocks(lines, opts) {
   let para = [];
   const flush = () => {
     if (para.length) {
-      out.push(`<p>${para.map((l) => inline(l, opts)).join('<br>')}</p>`);
+      out.push(`<p>${joinLines(para, opts)}</p>`);
       para = [];
     }
   };
@@ -88,13 +88,32 @@ function blocks(lines, opts) {
 
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
 
+// CommonMark line breaks: a newline inside a paragraph is a soft break (a space); two trailing
+// spaces or a trailing backslash make a hard break. Agents hard-wrap at ~100 columns.
+const HARD_BREAK = /( {2,}|\\)$/;
+const stripBreak = (line) => line.replace(/( {2,}|\\)$/, '').replace(/\s+$/, '');
+
+function joinLines(lines, opts) {
+  let html = '';
+  lines.forEach((line, i) => {
+    const last = i === lines.length - 1;
+    html += inline(last ? line.trim() : stripBreak(line.trim()), opts);
+    if (!last) html += HARD_BREAK.test(line) ? '<br>' : ' ';
+  });
+  return html;
+}
+
 function list(lines, opts) {
   // Items with their indentation; continuation lines join the previous item.
   const items = [];
   for (const raw of lines) {
     const m = raw.match(LIST_ITEM);
     if (!m) {
-      if (items.length) items[items.length - 1].html += '<br>' + inline(raw.trim(), opts);
+      if (items.length) {
+        const item = items[items.length - 1];
+        item.html += (item.hard ? '<br>' : ' ') + inline(stripBreak(raw.trim()), opts);
+        item.hard = HARD_BREAK.test(raw);
+      }
       continue;
     }
     let text = m[3];
@@ -109,7 +128,8 @@ function list(lines, opts) {
       ordered: /\d/.test(m[2]),
       start: parseInt(m[2], 10) || 1,
       task,
-      html: inline(text, opts),
+      html: inline(stripBreak(text), opts),
+      hard: HARD_BREAK.test(raw),
     });
   }
   return renderItems(items);
