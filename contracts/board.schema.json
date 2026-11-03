@@ -3,7 +3,7 @@
   "$id": "https://github.com/hec-ovi/earmark-skill/contracts/board.schema.json",
   "title": "Board payloads",
   "description": "Shapes returned by the board service: the `data` of every `earmark --json` envelope and every HTTP API response (docs/HTTP_API.md). Additive fields are MINOR (consumers ignore unknown fields); removal, rename, type change or meaning change is MAJOR.",
-  "x-contract-version": "1.2.0",
+  "x-contract-version": "1.3.0",
   "$defs": {
     "Key": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{0,9}-[1-9][0-9]*$", "description": "Issue key <PREFIX>-<id>." },
     "Handle": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
@@ -392,13 +392,18 @@
     "Check": {
       "type": "object",
       "description": "The actor's change feed (earmark check): only what others changed since its previous check or join, on issues it is assignee or reviewer of, issues assigned to it or taken from it, and comments anywhere that mention it. since: the previous check or join. changed: at most 10, those needing action first, then effective priority, then key; more counts the rest. cursor: the stored cursor after the call (advanced to the heads read at the start, unchanged with peek). pending_changes() is len(changed) + more without reading or writing anything else.",
-      "required": ["agent", "since", "holding", "todo_for_you", "changed", "more", "cursor"],
+      "required": ["agent", "role", "since", "holding", "ready_for_you", "waiting_on_blockers",
+                   "reviews_waiting", "todo_for_you", "changed", "more", "cursor"],
       "additionalProperties": false,
       "properties": {
         "agent": { "$ref": "#/$defs/Handle" },
+        "role": { "oneOf": [{ "$ref": "#/$defs/Role" }, { "type": "null" }], "description": "The actor's profile role; the text header counts reviews_waiting for reviewers, ready_for_you otherwise." },
         "since": { "$ref": "#/$defs/Timestamp" },
         "holding": { "type": "array", "items": { "$ref": "#/$defs/CheckHolding" } },
-        "todo_for_you": { "$ref": "#/$defs/Count", "description": "Issues next would hand the actor now (the review queue for reviewers)." },
+        "ready_for_you": { "$ref": "#/$defs/Count", "description": "What next (work mode) could claim now: todo assigned to the actor or unassigned, and stale claims, in its scope, with no open blocker." },
+        "waiting_on_blockers": { "$ref": "#/$defs/Count", "description": "todo or blocked issues assigned to the actor, in its scope, that an open issue blocks; they return to next when the blocker closes." },
+        "reviews_waiting": { "$ref": "#/$defs/Count", "description": "What next --review could claim now: in_review with no reviewer or a stale one, not the actor's own work, in its scope." },
+        "todo_for_you": { "$ref": "#/$defs/Count", "description": "Alias of ready_for_you (its name before 1.3.0, when reviewers got the review queue here)." },
         "changed": { "type": "array", "items": { "$ref": "#/$defs/CheckIssue" } },
         "more": { "$ref": "#/$defs/Count" },
         "cursor": {

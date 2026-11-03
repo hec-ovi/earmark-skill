@@ -418,9 +418,10 @@ class TeamMixin:
         events by others on issues it is assignee or reviewer of, comments and files by others
         on them, comments anywhere mentioning it (only past its `issue:<id>` cursor: what `next`
         or `show --new` printed is not reported again); summarized per issue as kinds of change
-        and counts. {agent, since, holding, todo_for_you, changed (at most 10: action first, then
-        effective priority, then key), more, cursor}. Advances the cursor to the heads read at
-        the start (one small write) unless peek; `cursor` is the stored cursor after the call."""
+        and counts. {agent, role, since, holding, ready_for_you, waiting_on_blockers,
+        reviews_waiting, todo_for_you (see _check_counts), changed (at most 10: action first,
+        then effective priority, then key), more, cursor}. Advances the cursor to the heads read
+        at the start (one small write) unless peek; `cursor` is the stored cursor after the call."""
         me = self._need_actor()
         now = timeutil.now()
         now_ts = timeutil.iso(now)
@@ -441,18 +442,35 @@ class TeamMixin:
                         "lease_left_min": _minutes_left(r[1], now)} for r in conn.execute(
                 "SELECT id, lease_until FROM issues WHERE (assignee = ? AND status = 'in_progress') "
                 "OR (reviewer = ? AND status = 'in_review') ORDER BY lease_until, id", (me, me))]
-            mode = "review" if agent["role"] == "reviewer" else "work"
-            sql, args = self._candidates(conn, agent, mode, [], now_ts)
-            todo = conn.execute(f"SELECT count(*) {sql}", args).fetchone()[0]
+            counts = self._check_counts(conn, agent, now_ts)
         position = {"event_id": ev, "comment_id": cm}
         moved = cursor is None or (ev, cm) != (heads["event_id"], heads["comment_id"])
         if not peek:
             if moved:
                 self._advance_check(me, heads, now_ts)
             position = dict(heads)
-        return {"agent": me, "since": since, "holding": holding, "todo_for_you": todo,
+        return {"agent": me, "role": agent["role"], "since": since, "holding": holding, **counts,
                 "changed": ranked[:CHECK_LIMIT], "more": max(0, len(ranked) - CHECK_LIMIT),
                 "cursor": position}
+
+    def _check_counts(self, conn, agent, now_ts: str) -> dict:
+        """What the check header counts. ready_for_you: what `next` (work mode) could claim now
+        (todo assigned to the actor or unassigned, stale claims, in scope, no open blocker);
+        waiting_on_blockers: todo or blocked issues assigned to it in scope that an open issue
+        blocks (they come back to `next` when the blocker closes); reviews_waiting: what
+        `next --review` could claim. todo_for_you: ready_for_you under its 1.2 name."""
+        counts = {}
+        for name, mode in (("ready_for_you", "work"), ("reviews_waiting", "review")):
+            sql, args = self._candidates(conn, agent, mode, [], now_ts)
+            counts[name] = conn.execute(f"SELECT count(*) {sql}", args).fetchone()[0]
+        where, params = self._scope_where(conn, agent, [])
+        counts["waiting_on_blockers"] = conn.execute(
+            f"SELECT count(*) FROM {views.ISSUE_FROM} WHERE i.assignee = ? AND i.status IN "
+            f"('todo', 'blocked') AND EXISTS ({views.OPEN_BLOCKER}) AND {where}",
+            [agent["handle"], *params]).fetchone()[0]
+        counts["todo_for_you"] = counts["ready_for_you"]
+        return {k: counts[k] for k in ("ready_for_you", "waiting_on_blockers", "reviews_waiting",
+                                       "todo_for_you")}
 
     def pending_changes(self) -> int:
         """How many issues `check` would list now (read-only: two indexed queries, no write).
