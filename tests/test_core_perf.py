@@ -112,6 +112,7 @@ class Measure(unittest.TestCase):
         """The dirty hint runs after every write command: it must stay well under a millisecond."""
         b = self.board
         b.join("worker", handle="w1")
+        b.join("pm", handle="lead")  # a pm's feed adds the whole board's flow
         b.set_actor("owner")
         self._seed(2000)
         rng = random.Random(11)
@@ -138,24 +139,27 @@ class Measure(unittest.TestCase):
         heads = b.heads()
         b.close()
         self.board = b = Board.open(db=b.path, actor="w1")  # a fresh connection, as each command
-        results = {}
-        for name, behind in (("fresh", 0), ("200 events behind", 200), ("never checked", None)):
-            ev = 0 if behind is None else heads["event_id"] - behind
-            cm = 0 if behind is None else heads["comment_id"] - behind // 2
-            with db.write(b.conn) as conn:
-                conn.execute("UPDATE cursors SET last_event_id = ?, last_comment_id = ? "
-                             "WHERE agent = 'w1' AND scope = 'check'", (ev, cm))
-            count = b.pending_changes()
-            per_call = timed(lambda: [b.pending_changes() for _ in range(200)], runs=5) / 200
-            feed = b.check(peek=True)
-            self.assertEqual(count, len(feed["changed"]) + feed["more"], name)
-            results[name] = (per_call, count)
-        report("pending_changes on 2,000 issues / {:,} comments / {:,} events, 133 issues "
-               "assigned: ".format(comments, heads["event_id"]) + ", ".join(
-                   f"{name} {ms:.3f} ms ({n} issues)" for name, (ms, n) in results.items()))
-        self.assertLess(results["fresh"][0], 2)
-        self.assertLess(results["200 events behind"][0], 2)
-        self.assertLess(results["never checked"][0], 10)
+        for handle in ("w1", "lead"):
+            b.set_actor(handle)
+            results = {}
+            for name, behind in (("fresh", 0), ("200 events behind", 200), ("never checked", None)):
+                ev = 0 if behind is None else heads["event_id"] - behind
+                cm = 0 if behind is None else heads["comment_id"] - behind // 2
+                with db.write(b.conn) as conn:
+                    conn.execute("UPDATE cursors SET last_event_id = ?, last_comment_id = ? "
+                                 "WHERE agent = ? AND scope = 'check'", (ev, cm, handle))
+                count = b.pending_changes()
+                per_call = timed(lambda: [b.pending_changes() for _ in range(200)], runs=5) / 200
+                feed = b.check(peek=True)
+                self.assertEqual(count, len(feed["changed"]) + feed["more"], name)
+                results[name] = (per_call, count)
+            who = "133 issues assigned" if handle == "w1" else "a pm, whole board"
+            report("pending_changes on 2,000 issues / {:,} comments / {:,} events, {}: ".format(
+                comments, heads["event_id"], who) + ", ".join(
+                    f"{name} {ms:.3f} ms ({n} issues)" for name, (ms, n) in results.items()))
+            self.assertLess(results["fresh"][0], 2)
+            self.assertLess(results["200 events behind"][0], 2)
+            self.assertLess(results["never checked"][0], 10 if handle == "w1" else 30)
 
     def _seed(self, n: int) -> None:
         """Bulk rows through SQL in one transaction (setup only; the reads are what we time)."""
