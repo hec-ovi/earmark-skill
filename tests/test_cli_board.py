@@ -49,10 +49,10 @@ class WaitTests(unittest.TestCase):
 
     def test_checks_only_when_data_version_moves(self):
         versions = iter([1, 1, 1, 2, 2, 3])
-        checks = iter([None, None, {"reason": "inbox", "count": 2}])
+        checks = iter([None, None, {"reason": "changes", "count": 2}])
         with fake_board(data_version=lambda: next(versions), wait_check=lambda mode: next(checks)) as boards:
             code, out, _ = run_main(["wait", "--interval", "0.01", "--timeout", "5s", "--as", "w-1"])
-        self.assertEqual((code, out), (0, "wait: inbox · 2 new · next: earmark inbox\n"))
+        self.assertEqual((code, out), (0, "wait: changes · 2 for you: earmark check\n"))
         self.assertEqual(len(boards[0].called("data_version")), 6)
         self.assertEqual(len(boards[0].called("wait_check")), 3)
         self.assertEqual(boards[0].called("wait_check")[0], (("any",), {}))
@@ -70,6 +70,15 @@ class WaitTests(unittest.TestCase):
             code, out, _ = run_main(["wait", "--timeout", "0", "--json", "--as", "w-1"])
         env = json.loads(out)
         self.assertEqual((code, env["error"]["code"], env["error"]["details"]["mode"]), (4, "empty", "any"))
+
+    def test_inbox_is_the_old_name_of_changes(self):
+        with fake_board(wait_check=None) as boards:
+            code, out, _ = run_main(["wait", "--for", "inbox", "--timeout", "0", "--as", "w-1"])
+        self.assertEqual((code, out), (4, "wait: nothing new in 0 · for: changes\n"))
+        self.assertEqual(boards[0].called("wait_check"), [(("changes",), {})])
+        code, _, err = run_main(["wait", "--for", "mail", "--as", "w-1"])
+        self.assertNotEqual(code, 0)
+        self.assertIn("changes", err)
 
     def test_default_timeout_fits_a_10_minute_tool_call(self):
         from earmark.cli import parser as P

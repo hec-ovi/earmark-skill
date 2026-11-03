@@ -145,7 +145,28 @@ class WaitTests(LauncherCase):
         self.assertIsNone(waiter.poll(), "waits while nothing is new")
         self.run_ok("comment", "1", "ping @w-1", "--as", "hector")
         out, err = waiter.communicate(timeout=30)
-        self.assertEqual((waiter.returncode, out, err), (0, "wait: inbox · 1 new · next: earmark inbox\n", ""))
+        self.assertEqual((waiter.returncode, out, err), (0, "wait: changes · 1 for you: earmark check\n", ""))
+
+    def test_check_then_wait_blocks_until_something_new(self):
+        """Soak repro: an unseen inbox question woke every `wait` at once, after `check` too."""
+        self.run_ok("join", "worker", "--as", "w-2")
+        self.run_ok("new", "Talk", "--as", "hector")
+        self.run_ok("claim", "1", "--as", "w-1")  # nothing left to claim: only a change can wake it
+        self.run_ok("comment", "1", "q @w-1", "--kind", "question", "--as", "w-2")
+        self.assertIn("question for you", self.run_ok("check", "--as", "w-1").stdout)
+        started = time.monotonic()
+        proc = self.run_cli("wait", "--timeout", "2s", "--interval", "0.1", "--as", "w-1")
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (4, "wait: nothing new in 2s · for: any\n", ""))
+        self.assertGreaterEqual(time.monotonic() - started, 2)
+        waiter = subprocess.Popen([sys.executable, LAUNCHER, "wait", "--timeout", "60s", "--interval", "0.1",
+                                   "--as", "w-1"], cwd=self.tmp, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True, env=clean_env(), encoding="utf-8")
+        self.addCleanup(lambda: waiter.poll() is None and waiter.kill())
+        time.sleep(0.5)
+        self.assertIsNone(waiter.poll(), "check saw the question: nothing new for the wait")
+        self.run_ok("comment", "1", "never mind, found it", "--as", "w-2")
+        out, err = waiter.communicate(timeout=30)
+        self.assertEqual((waiter.returncode, out, err), (0, "wait: changes · 1 for you: earmark check\n", ""))
 
     def test_work_ready_and_json(self):
         self.run_ok("new", "Ready now", "--as", "hector")

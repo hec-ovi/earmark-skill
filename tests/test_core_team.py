@@ -392,14 +392,31 @@ class WaitCheck(BoardCase):
         w1, r1 = self.agent("w1"), self.agent("r1", "reviewer")
         self.assertIsNone(w1.wait_check("any"))
         key = self.issue("x")["key"]
-        self.assertEqual(w1.wait_check("work"), {"reason": "work", "key": key, "title": "x"})
+        work = {"reason": "work", "key": key, "title": "x"}
+        self.assertEqual((w1.wait_check("work"), w1.wait_check("any")), (work, work))
         self.assertIsNone(w1.wait_check("review"))
-        self.assertIsNone(w1.wait_check("inbox"))
+        self.assertIsNone(w1.wait_check("changes"))
+        self.assertIsNone(r1.wait_check("any"))  # a reviewer's any is reviews, not work
         w1.claim(key)
         w1.submit_review(key, note="please @r1")
         self.assertEqual(r1.wait_check("review")["key"], key)
-        self.assertEqual(r1.wait_check("any"), {"reason": "inbox", "count": 1})
+        self.assertEqual(r1.wait_check("any"), {"reason": "changes", "count": 1})  # the mention
+        self.assertEqual(r1.wait_check("inbox"), {"reason": "changes", "count": 1})  # the old name
         self.assertIsNone(w1.wait_check("any"))
+
+    def test_changes_follow_the_check_cursor(self):
+        """check, then wait: what check reported never wakes the wait again; a new change does."""
+        w1, w2 = self.agent("w1"), self.agent("w2")
+        key = self.issue("x")["key"]
+        w1.claim(key)
+        w2.add_comment(key, "q @w1", kind="question")
+        self.assertEqual(w1.wait_check("any"), {"reason": "changes", "count": 1})
+        w1.check()
+        self.assertIsNone(w1.wait_check("any"))
+        self.assertIsNone(w1.wait_check("changes"))
+        self.assertEqual(w1.inbox(peek=True)["items"][0]["body"], "q @w1")  # the inbox no longer wakes it
+        w2.add_comment(key, "never mind")
+        self.assertEqual(w1.wait_check("any"), {"reason": "changes", "count": 1})
         with self.assertRaises(InvalidRequest):
             w1.wait_check("forever")
         with self.assertRaises(IdentityRequired):

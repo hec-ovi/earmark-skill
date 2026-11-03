@@ -268,8 +268,8 @@ class MiscTests(unittest.TestCase):
                          "wait: work · GAME-42 Eye color · next: earmark next")
         self.assertEqual(R.render_wait({"reason": "review", "issue": summary()}),
                          "wait: review · GAME-42 Eye color widget resets on reload · next: earmark next --review")
-        self.assertEqual(R.render_wait({"reason": "inbox", "count": 2}),
-                         "wait: inbox · 2 new · next: earmark inbox")
+        self.assertEqual(R.render_wait({"reason": "changes", "count": 2}),
+                         "wait: changes · 2 for you: earmark check")
 
     def test_dash(self):
         self.assertEqual(R.dash(None), "-")
