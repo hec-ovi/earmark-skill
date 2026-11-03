@@ -165,7 +165,9 @@ class TopicRouteTests(FakeServerCase):
     def test_delete(self):
         data = self.assertEnvelopeOk(self.call("DELETE", "/api/topics/4"))
         self.assertEqual(data, {"deleted": 4})
-        self.assertEqual(self.store.last("remove_topic"), ((4,), {"archive": False}))
+        self.assertEqual(self.store.last("remove_topic"), ((4,), {}))
+        self.call("DELETE", "/api/topics/4?archive=1")
+        self.assertEqual(self.store.last("remove_topic"), ((4,), {"archive": True}))
 
 
 class IssueReadRouteTests(FakeServerCase):

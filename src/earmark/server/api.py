@@ -12,15 +12,29 @@ from typing import Any, Callable, Iterable
 import earmark
 from earmark.errors import Conflict, EarmarkError, InvalidRequest
 
-# Fallback enum lists for /api/board when the board does not report its own.
-ENUMS = {
-    "statuses": ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "canceled"],
-    "priorities": ["urgent", "high", "medium", "low", "none"],
-    "types": ["bug", "feature", "task", "chore"],
-    "comment_kinds": ["note", "progress", "question", "handoff", "approval", "changes"],
-    "roles": ["worker", "reviewer", "pm"],
-    "link_kinds": ["blocks", "blocked_by", "duplicates", "duplicated_by", "relates"],
-}
+def _enums() -> dict:
+    """Enum lists for /api/board, from earmark.model (with a static fallback)."""
+    try:
+        from earmark import model
+
+        return {
+            "statuses": list(model.STATUSES),
+            "priorities": list(model.PRIORITIES),
+            "types": list(model.TYPES),
+            "comment_kinds": list(model.COMMENT_KINDS),
+            "roles": list(model.ROLES),
+            "link_kinds": list(model.LINK_KINDS),
+        }
+    except (ImportError, AttributeError):  # pragma: no cover - model always ships with the server
+        return {
+            "statuses": ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "canceled"],
+            "priorities": ["urgent", "high", "medium", "low", "none"],
+            "types": ["bug", "feature", "task", "chore"],
+            "comment_kinds": ["note", "progress", "question", "handoff", "approval", "changes"],
+            "roles": ["worker", "reviewer", "pm"],
+            "link_kinds": ["blocks", "duplicates", "relates"],
+        }
+
 
 TRUE = {"1", "true", "yes", "on"}
 FALSE = {"0", "false", "no", "off", ""}
@@ -157,7 +171,7 @@ def get_board(r: Request) -> dict:
         "open": counts.get("open", 0),
         "total": counts.get("total", 0),
     }
-    enums = dict(ENUMS)
+    enums = _enums()
     enums.update(info.get("enums") or {})
     data["enums"] = enums
     data["version"] = info.get("version") or earmark.__version__
@@ -195,7 +209,9 @@ def edit_topic(r: Request) -> dict:
 
 def remove_topic(r: Request) -> dict:
     ref = _topic_ref(r.params["id"])
-    r.board.remove_topic(ref, archive=r.qbool("archive"))
+    if r.qbool("archive"):  # extension: archive a non-empty subtree instead of deleting it
+        return r.board.remove_topic(ref, archive=True)
+    r.board.remove_topic(ref)
     return {"deleted": ref}
 
 
