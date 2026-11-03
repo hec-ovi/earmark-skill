@@ -432,9 +432,9 @@
 
     "CheckIssue": {
       "type": "object",
-      "description": "One changed issue as kinds of change and counts, never content. comments: new comments by others; questions: those of kind question or mentioning the actor; files: files others attached. action: assigned, rejected, unblocked, review_cap, takeover, or a question; on the issues a pm watches only for its scope (not its own), only review_cap.",
+      "description": "One changed issue as kinds of change and counts, never content. comments: new comments by others; questions: those of kind question addressed to the actor (they @mention it, or mention nobody on an issue it is assignee or reviewer of); mentions: the other comments that @mention it (before 1.3.0 counted under questions); files: files others attached. action: assigned, rejected, unblocked, review_cap, takeover, a question or a mention; on the issues a pm watches only for its scope (not its own), only review_cap.",
       "required": ["key", "priority", "effective_priority", "blocks_open", "action", "changes",
-                   "comments", "questions", "files"],
+                   "comments", "questions", "mentions", "files"],
       "additionalProperties": false,
       "properties": {
         "key": { "$ref": "#/$defs/Key" },
@@ -445,6 +445,7 @@
         "changes": { "type": "array", "items": { "$ref": "#/$defs/CheckChange" } },
         "comments": { "$ref": "#/$defs/Count" },
         "questions": { "$ref": "#/$defs/Count" },
+        "mentions": { "$ref": "#/$defs/Count" },
         "files": { "$ref": "#/$defs/Count" }
       }
     },

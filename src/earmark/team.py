@@ -63,8 +63,11 @@ CHECK_COMMENTS_MENTIONING = [
     "ON c.id = m.comment_id WHERE m.handle = :me AND m.comment_id > :cm{upto} AND c.author <> :me "
     f"AND {_UNREAD}"]
 _EVENT_COLS = "e.id, e.issue_id, e.actor, e.action, e.old, e.new, e.at"
+# A question is for the handles it @mentions, or, mentioning nobody, for the issue's assignee
+# and reviewer (the rows of CHECK_COMMENTS_MINE); any other comment naming the agent mentions it.
 _COMMENT_COLS = ("c.id, c.issue_id, c.kind, EXISTS (SELECT 1 FROM mentions q WHERE "
-                 "q.comment_id = c.id AND q.handle = :me) AS mentioned")
+                 "q.comment_id = c.id AND q.handle = :me) AS mentioned, EXISTS (SELECT 1 FROM "
+                 "mentions q WHERE q.comment_id = c.id) AS named")
 
 
 def _union(parts: list[str], cols: str, upto: str) -> str:
@@ -552,15 +555,15 @@ class TeamMixin:
         return _scope_sql(self._scope_paths(conn, agent["profile"]))
 
     def _check_changes(self, conn, me: str, params: dict, scope: str | None = None) -> dict:
-        """{issue_id: {changes, comments, questions, files, _named}} from the feed's rows;
+        """{issue_id: {changes, comments, questions, mentions, files, _named}} from the feed's rows;
         scope (a pm's) adds its scope's events and lapsed leases. _named: an assignment change
         named the agent (the issue is its business even when it holds it no more)."""
         per: dict[int, dict] = {}
 
         def entry(issue_id: int) -> dict:
             return per.setdefault(issue_id, {"changes": [], "comments": 0, "questions": 0,
-                                             "files": 0, "_status": None, "_fields": {},
-                                             "_named": False})
+                                             "mentions": 0, "files": 0, "_status": None,
+                                             "_fields": {}, "_named": False})
 
         sql = CHECK_EVENTS_SQL
         if scope is not None:
@@ -602,8 +605,10 @@ class TeamMixin:
         for row in conn.execute(CHECK_COMMENTS_SQL, params):
             item = entry(row["issue_id"])
             item["comments"] += 1
-            if row["kind"] == "question" or row["mentioned"]:
+            if row["kind"] == "question" and (row["mentioned"] or not row["named"]):
                 item["questions"] += 1
+            elif row["mentioned"]:
+                item["mentions"] += 1
         if scope is not None:
             stale = CHECK_STALE_SCOPE.replace("<scope>", scope).format(cols=_STALE_COLS)
             for row in conn.execute(stale + " ORDER BY 1", params):
@@ -644,7 +649,7 @@ class TeamMixin:
         return None
 
     def _check_ranked(self, conn, me: str, per: dict, *, pm: bool = False) -> list[dict]:
-        """Ranked entries. action: a question for it, or an assignment, reject, unblock,
+        """Ranked entries. action: a question for it or a mention, or an assignment, reject, unblock,
         takeover or review cap on its business; on a pm's scope-wide entries only a review cap
         (the owner or a pm decides) is action."""
         if not per:
@@ -667,14 +672,15 @@ class TeamMixin:
             effective = min(priority, held)
             named = item.pop("_named", False)
             mine = not pm or named or me in seats[issue_id]
-            action = item["questions"] > 0 or any(
+            action = item["questions"] + item["mentions"] > 0 or any(
                 c["kind"] == "review_cap" or (mine and c["kind"] in _ACTION_KINDS)
                 for c in item["changes"])
             out.append(((not action, effective, issue_id), {
                 "key": self._key(issue_id), "priority": model.priority_name(priority),
                 "effective_priority": model.priority_name(effective), "blocks_open": blocks_open,
                 "action": action, "changes": item["changes"], "comments": item["comments"],
-                "questions": item["questions"], "files": item["files"]}))
+                "questions": item["questions"], "mentions": item["mentions"],
+                "files": item["files"]}))
         out.sort(key=lambda pair: pair[0])
         return [entry for _, entry in out]
 
