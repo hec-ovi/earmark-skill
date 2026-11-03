@@ -1022,9 +1022,25 @@ def check_parts(item: dict) -> list[str]:
     return parts or ["changed"]
 
 
+def check_counts(res: dict) -> list[str]:
+    """The header's counts, by role: what `next --review` could claim for a reviewer
+    (`reviews waiting: N`), else what `next` could claim (`ready for you: N`) and, when some of
+    the actor's issues wait on open blockers, `M waiting on blockers`."""
+    if res.get("role") == "reviewer" and res.get("reviews_waiting") is not None:
+        return [f"reviews waiting: {res['reviews_waiting']}"]
+    ready = res.get("ready_for_you", res.get("todo_for_you"))
+    if ready is None:
+        return []
+    parts = [f"ready for you: {ready}"]
+    if res.get("waiting_on_blockers"):
+        parts.append(f"{res['waiting_on_blockers']} waiting on blockers")
+    return parts
+
+
 def render_check(res: dict, *, day: str | None = None) -> str:
-    """`earmark check`: one header line (since when, what you hold, todo for you), then one line
-    per changed issue (`KEY  change · change`), then `+N more` when the board cut the list."""
+    """`earmark check`: one header line (since when, what you hold, what `next` could claim),
+    then one line per changed issue (`KEY  change · change`), then `+N more` when the board cut
+    the list."""
     if not isinstance(res, dict):
         return dash(res)
     day = day or today()
@@ -1038,8 +1054,7 @@ def render_check(res: dict, *, day: str | None = None) -> str:
     holding = res.get("holding") or []
     if holding:
         head.append("holding " + ", ".join(_holding(h) for h in holding))
-    if res.get("todo_for_you") is not None:
-        head.append(f"todo for you: {res['todo_for_you']}")
+    head += check_counts(res)
     out = [SEP.join(head)]
     width = max((len(str(i.get("key") or "?")) for i in changed), default=0)
     for item in changed:
