@@ -79,8 +79,9 @@ def issue(**over) -> dict:
                  "review_requested_at": None, "resolved_at": None,
                  "children": [summary(key="GAME-43", id=43, title="a"),
                               summary(key="GAME-44", id=44, title="b")],
-                 "links": {"blocks": ["GAME-51"], "blocked_by": [], "duplicates": [],
+                 "links": {"blocks": ["GAME-51"], "blocked_by": ["GAME-77"], "duplicates": [],
                            "duplicated_by": [], "relates": []},
+                 "link_status": {"GAME-51": "todo", "GAME-77": "done"},
                  "new_comments": 3})
     base.update(over)
     return base
@@ -182,7 +183,7 @@ class FakeBoard:
 
 DEFAULTS = {
     "touch": None,
-    "list_issues": lambda **kw: {"items": [summary(), summary_51()], "total": 2,
+    "list_issues": lambda **kw: {"items": [summary(blocks_open=1), summary_51()], "total": 2,
                                  "limit": kw.get("limit", 50), "offset": kw.get("offset", 0)},
     "get_issue": lambda key, comments=0: issue(**({"comments": COMMENTS} if comments else {})),
     "list_comments": {"items": COMMENTS, "last_id": 1190, "has_more": False},

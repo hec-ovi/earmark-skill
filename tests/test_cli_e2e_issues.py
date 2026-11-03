@@ -101,7 +101,7 @@ class IssueWriteTests(SampleBoard):
         self.ok("link", "1", "relates", "3", as_="hector")
         self.ok("link", "3", "duplicates", "2", as_="hector")
         show = self.ok("show", "2").splitlines()
-        self.assertEqual(show[5], "parent: -   sub: -   blocks: -   blocked by: GAME-1")
+        self.assertEqual(show[5], "parent: -   sub: -   blocks: -   blocked by: GAME-1 (todo)")
         self.assertEqual(show[6], "duplicates: -   duplicated by: GAME-3   relates: -")
         self.assertIn("blocked", self.ok("ls", "--blocked"))
         self.assertEqual(self.ok("unlink", "1", "blocks", "2", as_="hector"),

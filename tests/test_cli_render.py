@@ -16,7 +16,7 @@ from earmark.cli import render as R  # noqa: E402
 
 class LsTests(unittest.TestCase):
     def test_contract_sample(self):
-        page = {"items": [summary(), summary_51()], "total": 2, "limit": 50, "offset": 0}
+        page = {"items": [summary(blocks_open=1), summary_51()], "total": 2, "limit": 50, "offset": 0}
         self.assertEqual(R.render_ls(page, day=DAY), contract_block("KEY      STATUS"))
 
     def test_footer_with_more(self):

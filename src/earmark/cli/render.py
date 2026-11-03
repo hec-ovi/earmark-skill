@@ -164,6 +164,7 @@ LS_COLUMNS: dict[str, tuple[str, Callable[[dict], Any]]] = {
     "id": ("ID", lambda i: i.get("id")),
     "status": ("STATUS", lambda i: i.get("status")),
     "priority": ("PRIO", lambda i: i.get("priority")),
+    "effective_priority": ("EPRIO", lambda i: i.get("effective_priority")),
     "type": ("TYPE", lambda i: i.get("type")),
     "assignee": ("ASSIGNEE", lambda i: i.get("assignee")),
     "reviewer": ("REVIEWER", lambda i: i.get("reviewer")),
@@ -183,6 +184,7 @@ LS_COLUMNS: dict[str, tuple[str, Callable[[dict], Any]]] = {
     "lease_until": ("LEASE", lambda i: i.get("lease_until")),
     "waiting": ("WAITING", lambda i: i.get("waiting")),
     "blocked": ("BLOCKED", lambda i: i.get("blocked")),
+    "blocks_open": ("HOLDS", lambda i: i.get("blocks_open")),
     "stale": ("STALE", lambda i: i.get("stale")),
     "created_at": ("CREATED", lambda i: i.get("created_at")),
     "updated_at": ("UPDATED", lambda i: i.get("updated_at")),
@@ -191,7 +193,9 @@ LS_INTERNAL = {"waiting"}   # triage-only column
 LS_ALIASES = {"prio": "priority", "comments": "comment_count", "c": "comment_count",
               "created": "created_at", "updated": "updated_at", "lease": "lease_until",
               "sub": "children", "label": "labels", "last_comment": "last_comment_id",
-              "attachments": "attachment_count", "a": "attachment_count"}
+              "attachments": "attachment_count", "a": "attachment_count",
+              "effective": "effective_priority", "eprio": "effective_priority",
+              "holds": "blocks_open"}
 
 
 def ls_fields(spec: str | None) -> list[str]:
@@ -212,9 +216,11 @@ def ls_fields(spec: str | None) -> list[str]:
 
 
 def issue_flags(issue: dict, day: str | None = None) -> list[str]:
-    """Trailing ls flags: c:N due:MM-DD overdue blocked stale sub:N a:N."""
+    """Trailing ls flags: blocks:N c:N due:MM-DD overdue blocked stale sub:N a:N."""
     day = day or today()
     flags = []
+    if issue.get("blocks_open"):
+        flags.append(f"blocks:{issue['blocks_open']}")
     if issue.get("comment_count"):
         flags.append(f"c:{issue['comment_count']}")
     due = issue.get("due")
@@ -324,6 +330,22 @@ def holder_note(issue: dict, who: str, day: str | None = None) -> str:
     return f" (lease until {lease}, stale)" if issue.get("stale") else f" (lease until {lease})"
 
 
+def with_status(issue: dict, keys: list[str]) -> list[str]:
+    """`GAME-77 (done)`: linked keys with their status when the issue carries it."""
+    status = issue.get("link_status") or {}
+    return [f"{k} ({status[k]})" if k in status else k for k in keys]
+
+
+def effective_note(issue: dict) -> str:
+    """` (effective high, blocks GAME-42)` when what it holds up is more urgent than itself."""
+    eff = issue.get("effective_priority")
+    if not eff or eff == issue.get("priority"):
+        return ""
+    status = issue.get("link_status") or {}
+    holds = [k for k in _links(issue, "blocks") if status.get(k) not in CLOSED]
+    return f" (effective {eff}, blocks {', '.join(holds)})" if holds else f" (effective {eff})"
+
+
 def comments_summary(issue: dict) -> str:
     n = issue.get("comment_count") or 0
     text = f"comments: {n}"
@@ -366,7 +388,7 @@ def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None) ->
     lines = [
         head,
         g.join([f"status: {style.status(dash(issue.get('status')))}",
-                f"priority: {style.priority(dash(issue.get('priority')))}",
+                f"priority: {style.priority(dash(issue.get('priority')))}{effective_note(issue)}",
                 f"type: {dash(issue.get('type'))}", f"version: {dash(issue.get('version'))}"]),
         f"topic: {dash(issue.get('topic'))}",
         g.join([f"assignee: {dash(issue.get('assignee'))}{holder_note(issue, 'assignee')}",
@@ -375,7 +397,7 @@ def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None) ->
         g.join([f"labels: {dash(issue.get('labels'))}", f"due: {due}"]),
         g.join([f"parent: {dash(issue.get('parent'))}", f"sub: {dash(_children_keys(issue))}",
                 f"blocks: {dash(_links(issue, 'blocks'))}",
-                f"blocked by: {dash(_links(issue, 'blocked_by'))}"]),
+                f"blocked by: {dash(with_status(issue, _links(issue, 'blocked_by')))}"]),
     ]
     extra = [(label, _links(issue, kind)) for label, kind in
              (("duplicates", "duplicates"), ("duplicated by", "duplicated_by"), ("relates", "relates"))]
@@ -401,7 +423,8 @@ def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None) ->
     return "\n".join(lines)
 
 
-SHOW_FIELDS = ("key", "title", "body", "status", "priority", "type", "topic", "assignee",
+SHOW_FIELDS = ("key", "title", "body", "status", "priority", "effective_priority", "blocks_open",
+               "type", "topic", "assignee",
                "reviewer", "reporter", "labels", "due", "parent", "children", "blocks",
                "blocked_by", "duplicates", "relates", "lease_until", "stale", "version",
                "created_at", "updated_at", "started_at", "review_requested_at", "resolved_at",
@@ -761,6 +784,7 @@ def render_whoami(res: dict, *, style: Style = PLAIN, day: str | None = None) ->
 
 
 TRIAGE_SECTIONS = (("backlog", "untriaged backlog"), ("unassigned", "unassigned todo"),
+                   ("offline", "assigned to offline agents"),
                    ("stale", "stale claims"), ("review_queue", "review queue"),
                    ("blocked", "blocked"), ("overdue", "overdue"))
 # the call that lists a whole section when triage cuts it
@@ -768,6 +792,7 @@ TRIAGE_MORE = {"backlog": "earmark ls -s backlog", "unassigned": "earmark ls -s 
                "stale": "earmark ls --stale", "review_queue": "earmark ls -s in_review",
                "blocked": "earmark ls --blocked", "overdue": "earmark ls --overdue",
                "idle_agents": "earmark team"}
+TRIAGE_WHEN_ANY = ("offline",)  # in the counts line only when there are some
 # columns every row of a section shares by definition
 TRIAGE_FIXED = {"backlog": ("status",), "unassigned": ("status", "assignee"),
                 "review_queue": ("status",)}
@@ -791,7 +816,10 @@ def _varying(name: str, items: list[dict], fields: list[str]) -> list[str]:
 
 
 def _more(name: str, total: int, shown: int) -> list[str]:
-    return [f"+{total - shown} more: {TRIAGE_MORE[name]}"] if total > shown else []
+    if total <= shown:
+        return []
+    call = TRIAGE_MORE.get(name) or f"earmark triage --limit {total}"  # no ls filter says "offline"
+    return [f"+{total - shown} more: {call}"]
 
 
 def render_triage(res: dict, *, style: Style = PLAIN, day: str | None = None,
@@ -804,7 +832,8 @@ def render_triage(res: dict, *, style: Style = PLAIN, day: str | None = None,
         return dash(res)
     counts = res.get("counts") or {}
     head = [f"{label} {counts.get(name, len(res.get(name) or []))}"
-            for name, label in TRIAGE_SECTIONS]
+            for name, label in TRIAGE_SECTIONS
+            if name not in TRIAGE_WHEN_ANY or counts.get(name, len(res.get(name) or []))]
     head.append(f"idle agents {counts.get('idle_agents', len(res.get('idle_agents') or []))}")
     out = ["triage: " + SEP.join(head)]
     since = res.get("review_since") or {}
@@ -963,6 +992,21 @@ def render_attachment(a: dict, *, style: Style = PLAIN) -> str:
         f"sha256: {dash(a.get('sha256'))}",
         f"path: {dash(a.get('path'))}",
     ])
+
+
+def render_need(res: dict, *, actor: str | None = None) -> str:
+    """`need`: what was filed and where, then what happens to the issue that waits."""
+    new, waiting = res.get("created") or {}, res.get("blocked") or {}
+    first = [f"{new.get('key')} created in {dash(new.get('topic'))}"]
+    if new.get("assignee"):
+        first.append(f"assigned to {new['assignee']}")
+    first.append(f"blocks {waiting.get('key')}")
+    if waiting.get("status") == "blocked" and waiting.get("assignee") and waiting.get("assignee") == actor:
+        second = (f"{waiting.get('key')} blocked, still yours{SEP}returns to your next when "
+                  f"{new.get('key')} is done")
+    else:
+        second = f"{waiting.get('key')} {dash(waiting.get('status'))}{SEP}waits on {new.get('key')}"
+    return "\n".join([SEP.join(first), second])
 
 
 def render_saved(res: dict) -> str:

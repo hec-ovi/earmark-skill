@@ -35,6 +35,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "move": ("Work", "any allowed status transition"),
     "reopen": ("Work", "done or canceled -> todo"),
     "cancel": ("Work", "-> canceled"),
+    "need": ("Work", "file work only another specialist can do as a blocker of KEY; park KEY"),
     "new": ("Write", "create an issue; prints the new key"),
     "edit": ("Write", "change only the given fields"),
     "comment": ("Write", "add a comment, or --edit one of yours; prints #id"),
@@ -72,7 +73,7 @@ earmark: local issue board for teams of coding agents
 usage: earmark [--as HANDLE] [--db PATH] [--json] <command> [args]
 
   Read    topics  ls  show  comments  inbox
-  Work    next  claim  release  review  approve  reject  done  move  reopen  cancel
+  Work    next  claim  release  need  review  approve  reject  done  move  reopen  cancel
   Write   new  edit  comment  link  unlink  assign  rank  delete
   Files   attach  attachments  attachment  detach
   Topics  topic add | edit | mv | rm
@@ -346,6 +347,20 @@ def b_reopen(p):
 def b_cancel(p):
     _key(p)
     _note(p, required=True, help="why ('-' reads stdin)")
+
+
+def b_need(p):
+    _key(p, help="the issue that waits: GAME-42, game-42 or 42")
+    p.add_argument("title", metavar="TITLE", help="what the other specialist delivers")
+    p.add_argument("-t", "--topic", required=True, metavar="PATH",
+                   help="topic of the specialist who does it (next hands it to their scope)")
+    p.add_argument("--assign", metavar="H", help="assign it to H (a joined agent)")
+    _body(p)
+    p.add_argument("-p", "--priority", metavar="PRIO", help="default: KEY's priority")
+    p.add_argument("--type", metavar="T", help="bug, feature, task (default), chore")
+    p.add_argument("-l", "--label", action="append", default=[], metavar="LABEL", help="repeatable")
+    p.add_argument("--attach", action="append", default=[], metavar="FILE",
+                   help="attach FILE to the new issue; repeatable")
 
 
 def b_new(p):

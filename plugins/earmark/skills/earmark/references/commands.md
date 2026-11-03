@@ -36,7 +36,7 @@ Text output (header, aligned columns, `-` for empty, flags last):
 
 ```
 KEY      STATUS       PRIO    TYPE  ASSIGNEE   TOPIC                                      TITLE
-GAME-42  in_progress  high    bug   claude-ui  ui-ux/character-menu/face-layer/eye-color  Eye color widget resets on reload  c:3 due:11-07
+GAME-42  in_progress  high    bug   claude-ui  ui-ux/character-menu/face-layer/eye-color  Eye color widget resets on reload  blocks:1 c:3 due:11-07
 GAME-51  todo         medium  task  -          ui-ux/video-calls                          Mute button state  blocked
 2 of 2 open issues
 ```

@@ -1,9 +1,9 @@
-"""Work commands: next, claim, release, review, approve, reject, done, move, reopen, cancel."""
+"""Work commands: next, claim, release, need, review, approve, reject, done, move, reopen, cancel."""
 
 from __future__ import annotations
 
 from earmark.cli import render as R
-from earmark.cli.common import Context, Result, _key
+from earmark.cli.common import Context, Result, _key, _labels
 
 
 def _note(ctx: Context, a) -> str | None:
@@ -24,6 +24,14 @@ def cmd_next(ctx: Context, a) -> Result:
         return out
 
     return Result(issue, text)
+
+
+def cmd_need(ctx: Context, a) -> Result:
+    body = ctx.read_text(a.body, a.body_file, "body")
+    given = dict(topic=a.topic, body=body, priority=a.priority, type=a.type,
+                 labels=_labels(a.label) or None, assignee=a.assign, attach=list(a.attach) or None)
+    res = ctx.board().need(a.key, a.title, **{k: v for k, v in given.items() if v is not None})
+    return Result(res, lambda: R.render_need(res, actor=ctx.actor))
 
 
 def cmd_claim(ctx: Context, a) -> Result:
