@@ -98,6 +98,8 @@ class Contract(BoardCase):
         for issue in (parent, child, work, b.get_issue(work["key"], comments=5), w1.claim(work["key"])):
             self.check("Issue", issue)
         self.check("IssueList", b.list_issues(status="all"))
+        self.check("IssueList", w1.list_issues(status="all", extra=[
+            "started_at", "review_requested_at", "resolved_at", "new_comments", "links"]))
         self.check("CommentPage", b.list_comments(work["key"]))
         self.check("CommentPage", w1.list_comments(work["key"], new=True))
         self.check("InboxPage", r1.inbox(peek=True))

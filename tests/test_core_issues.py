@@ -242,6 +242,33 @@ class Read(BoardCase):
         with self.assertRaises(NotFound):
             self.board.get_issue("GAME-42")
 
+    def test_list_extra_fields_match_show(self):
+        """`ls --fields` takes show's scalars: the list asks for the ones summaries lack."""
+        b = self.board
+        w1 = self.agent("w1")
+        one, two, three = (self.issue(t)["key"] for t in ("one", "two", "three"))
+        b.link(one, "blocks", two)
+        b.link(three, "relates", one)
+        b.link(three, "duplicates", two)
+        w1.claim(one)
+        self.clock.advance(minutes=5)
+        w1.submit_review(one, note="ready")
+        b.move(one, "done")
+        b.add_comment(two, "for w1")
+        extra = ["started_at", "review_requested_at", "resolved_at", "new_comments", "links"]
+        for actor in (w1, self.open_as(None)):
+            items = actor.list_issues(status="all", sort="key", extra=extra)["items"]
+            for item in items:
+                shown = actor.get_issue(item["key"])
+                self.assertEqual({k: item[k] for k in extra}, {k: shown[k] for k in extra}, item["key"])
+        first = w1.list_issues(status="all", sort="key", extra=["resolved_at"])["items"][0]
+        self.assertEqual((first["resolved_at"], "started_at" in first, "links" in first),
+                         ("2026-11-03T09:05:00Z", False, False))
+        self.assertNotIn("resolved_at", b.list_issues(status="all")["items"][0])
+        self.assertEqual(b.list_issues(status="all", extra=["links"], limit=0)["items"], [])
+        with self.assertRaises(InvalidRequest):
+            b.list_issues(extra=["body"])
+
     def test_events_and_activity(self):
         issue = self.issue("x")
         self.board.update_issue(issue["key"], title="y", priority="high")

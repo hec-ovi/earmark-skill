@@ -71,6 +71,32 @@ class LsTests(unittest.TestCase):
         self.assertIn("hint: fields: key,", err)
         self.assertEqual(boards, [], "validated before opening the board")
 
+    def test_fields_take_every_show_scalar(self):
+        """Live-test repro: `ls -s all --fields key,status,assignee,resolved_at` failed with
+        `unknown field 'resolved_at'`; ls takes the scalars show -f takes."""
+        from earmark.cli import render as R
+        for name in R.SHOW_SCALARS:
+            self.assertEqual(R.ls_fields(name), [name], name)
+        page = {"items": [summary(status="done", assignee="w1", resolved_at="2026-11-03T12:00:00Z",
+                                  links={"blocks": ["GAME-51", "GAME-52"]}, new_comments=None)],
+                "total": 1, "limit": 50, "offset": 0}
+        with fake_board(list_issues=page) as boards, at_day():
+            code, out, err = run_main(["ls", "-s", "all", "--fields",
+                                       "key,status,assignee,resolved_at,blocks,new_comments"])
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out.splitlines(), [
+            "KEY      STATUS  ASSIGNEE  RESOLVED              BLOCKS           NEW",
+            "GAME-42  done    w1        2026-11-03T12:00:00Z  GAME-51,GAME-52  -",
+            "1 of 1 issues"])
+        self.assertEqual(boards[0].called("list_issues")[0][1]["extra"],
+                         ["links", "new_comments", "resolved_at"])
+        with fake_board() as boards:
+            run_main(["ls", "--fields", "key,blocked-by"])
+        self.assertEqual(boards[0].called("list_issues")[0][1]["extra"], ["links"])
+        with fake_board() as boards:
+            run_main(["ls", "--fields", "key,updated_at,effective_priority,version,lease_until"])
+        self.assertNotIn("extra", boards[0].called("list_issues")[0][1])  # summaries carry these
+
     def test_closed_noun(self):
         page = {"items": [summary(status="done")], "total": 1, "limit": 50, "offset": 0}
         with fake_board(list_issues=page), at_day():

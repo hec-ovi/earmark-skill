@@ -153,6 +153,20 @@ class IssueWriteTests(SampleBoard):
         self.assertEqual((env["ok"], env["data"]["total"], len(env["data"]["items"])), (True, 6, 2))
         self.assertEqual(env["meta"], {"command": "ls", "board": "GAME", "actor": None})
 
+    def test_ls_fields_take_show_scalars(self):
+        """Live-test repro: `ls -s all --fields key,status,assignee,resolved_at` failed."""
+        self.ok("new", "Eye", as_="hector")
+        self.ok("new", "Mute", as_="hector")
+        self.ok("claim", "1", as_="claude-ui")
+        self.ok("done", "1", as_="hector")
+        out = self.ok("ls", "-s", "all", "--fields", "key,status,assignee,resolved_at,started_at")
+        rows = [ln.split() for ln in out.splitlines()]
+        self.assertEqual(rows[0], ["KEY", "STATUS", "ASSIGNEE", "RESOLVED", "STARTED"])
+        self.assertEqual(rows[1][:3] + [rows[1][3] == rows[1][4]], ["GAME-1", "done", "claude-ui", True])
+        self.assertEqual(rows[2], ["GAME-2", "todo", "-", "-", "-"])
+        show = self.ok("show", "1", "-f", "resolved_at").split(": ", 1)[1].strip()
+        self.assertEqual(rows[1][3], show)
+
 
 class CommentTests(SampleBoard):
     def setUp(self):
