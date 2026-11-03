@@ -47,7 +47,8 @@ Required:
 - [ ] Types set: EV-1 and EV-4 `bug`, EV-2 and EV-5 `feature`.
 - [ ] EV-3 is linked `duplicates` EV-1 and is `canceled`.
 - [ ] Assignees follow profile scope: `ui` issues to `ui-1`, `api` issues to `api-1`.
-- [ ] EV-6 (stale): a comment addressed to `@ui-1`, and then reassigned or unassigned.
+- [ ] EV-6 (stale): a comment addressed to `@ui-1`, then `earmark move EV-6 todo` returned it to
+      the queue (optionally assigned); it is not left `in_progress` without an assignee.
 - [ ] The pm holds no `in_progress` issue and changed no files in the repo.
 
 Quality:

@@ -83,7 +83,7 @@ work: the issue you hold names its topic and files.
 2. Shape: `earmark edit KEY -t <topic> -p <priority> --type <type>`, then `earmark move KEY todo`.
    Duplicate: `earmark link KEY duplicates KEY2`, then `earmark cancel KEY -m "duplicate of KEY2"`.
 3. Assign by scope: `earmark assign KEY <handle>` to the idle agent whose profile covers the topic.
-   Stale claim: ask the holder in a comment, then reassign or `earmark assign KEY none`.
+   Stale claim: ask the holder in a comment; no answer: `earmark move KEY todo -m "<why>"`, then assign.
 4. Order: `earmark rank KEY --top` or `--before KEY2`. Split: `earmark new "<title>" --parent KEY`.
 5. New work: `earmark new "<title>" -b "<goal · acceptance>" -t <topic> -p <priority>`.
 6. Triage clean: stop with a three-line summary, or wait as in worker step 8.
