@@ -145,12 +145,15 @@ class TeamMixin:
     @staticmethod
     def _free_handle(conn, slug: str) -> str:
         """Smallest n with <profile>-<n> unused or offline."""
-        taken = {r[0] for r in conn.execute(
-            "SELECT handle FROM agents WHERE online = 1 AND handle LIKE ?", (slug + "-%",))}
+        taken = {r[0] for r in conn.execute("SELECT handle FROM agents WHERE online = 1")}
+
+        def candidate(n: int) -> str:
+            return f"{slug[:32 - len(str(n)) - 1]}-{n}"
+
         n = 1
-        while f"{slug}-{n}"[:32] in taken:
+        while candidate(n) in taken:
             n += 1
-        return model.parse_handle(f"{slug[:32 - len(str(n)) - 1]}-{n}")
+        return model.parse_handle(candidate(n))
 
     def _briefing(self, handle: str) -> dict:
         with self._read() as conn:
