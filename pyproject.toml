@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "earmark-skill"
+version = "0.1.0"
+description = "Local issue board for teams of coding agents: SQLite (WAL) tracker CLI with nested topics, atomic claims, role profiles, comment cursors and a live web UI. Python stdlib only."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Hector Oviedo" }]
+keywords = [
+    "issue-tracker",
+    "multi-agent",
+    "ai-agents",
+    "agent-skills",
+    "claude-code",
+    "codex",
+    "sqlite",
+    "cli",
+    "kanban",
+    "local-first",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Bug Tracking",
+]
+dependencies = []
+
+[project.scripts]
+earmark = "earmark.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/hec-ovi/earmark-skill"
+Repository = "https://github.com/hec-ovi/earmark-skill"
+Changelog = "https://github.com/hec-ovi/earmark-skill/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+earmark = ["schema.sql", "ui/**/*", "profiles/**/*"]
