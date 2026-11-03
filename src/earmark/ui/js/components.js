@@ -371,6 +371,28 @@ export function ConfirmDialog({ d }) {
   </${Dialog}>`;
 }
 
+// ---------------------------------------------------------------- textareas
+
+/** Size a textarea to its content between minRows and maxRows, then scroll. */
+export function autosize(el, minRows = 3, maxRows = 24) {
+  if (!el) return;
+  const cs = getComputedStyle(el);
+  const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5 || 20;
+  const box = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+  el.style.height = 'auto';
+  const min = minRows * line + box, max = maxRows * line + box;
+  const h = Math.min(max, Math.max(min, el.scrollHeight + (cs.boxSizing === 'border-box' ? parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth) : 0)));
+  el.style.height = Math.ceil(h) + 'px';
+  el.style.overflowY = el.scrollHeight > h + 1 ? 'auto' : 'hidden';
+}
+
+/** Ref + effect pair: re-size whenever the value changes. */
+export function useAutosize(value, minRows, maxRows) {
+  const ref = useRef(null);
+  useLayoutEffect(() => autosize(ref.current, minRows, maxRows), [value]);
+  return ref;
+}
+
 // ---------------------------------------------------------------- markdown helpers
 
 /** Delegated clicks inside rendered markdown: #1187 comment refs scroll to the comment. */

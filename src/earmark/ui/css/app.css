@@ -193,7 +193,7 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
   width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--border-2); border-radius: var(--r-2);
   background: var(--surface); color: var(--text); font-size: 13.5px;
 }
-.textarea { height: auto; padding: 8px 10px; line-height: 1.5; resize: vertical; }
+.textarea { height: auto; padding: 8px 10px; line-height: 1.5; resize: none; }
 .input:focus, .textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .input.is-invalid, .is-invalid { border-color: var(--red); }
 .input[type="date"] { color-scheme: inherit; }
@@ -583,7 +583,7 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 .placeholder-btn:hover { color: var(--text); border-color: var(--text-4); }
 .edit-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin: 8px 0; }
 .edit-actions > span:first-child { margin-right: auto; }
-.md-input { min-height: 220px; font-size: 13.5px; }
+.md-input { font-size: 13.5px; resize: none; }
 
 .progress { height: 4px; margin: 0 0 8px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
 .progress span { display: block; height: 100%; background: var(--st-done); border-radius: 999px; }
@@ -815,7 +815,7 @@ a.att-name:hover { text-decoration: underline; }
 
 .composer { margin: 12px 0 8px; border: 1px solid var(--border-2); border-radius: 10px; background: var(--surface); overflow: hidden; }
 .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.composer-input { display: block; min-height: 72px; border: 0; border-radius: 0; resize: none; padding: 10px 12px; }
+.composer-input { display: block; border: 0; border-radius: 0; resize: none; padding: 10px 12px; }
 .composer-input:focus { box-shadow: none; }
 .composer-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-top: 1px solid var(--border-row); background: var(--bg-side); }
 .composer-hint { display: flex; gap: 3px; margin-left: auto; color: var(--text-4); }
@@ -925,7 +925,7 @@ a.att-name:hover { text-decoration: underline; }
 .new-issue { display: flex; flex-direction: column; gap: 8px; }
 .new-title { width: 100%; padding: 2px 0; border: 0; background: transparent; outline: none; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
 .new-title::placeholder, .new-body::placeholder, .label-input::placeholder { color: var(--text-4); }
-.new-body { width: 100%; min-height: 110px; padding: 2px 0; border: 0; background: transparent; outline: none; resize: vertical; font-size: 14px; line-height: 1.55; }
+.new-body { width: 100%; padding: 2px 0; border: 0; background: transparent; outline: none; resize: none; font-size: 14px; line-height: 1.55; }
 .new-props { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 12px; border-top: 1px solid var(--border-row); }
 .pill {
   display: inline-flex; align-items: center; gap: 6px; height: 28px; max-width: 240px; padding: 0 10px;
@@ -1013,7 +1013,7 @@ a.att-name:hover { text-decoration: underline; }
 .profile-editor .empty { padding: 48px 16px; }
 .scope-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 28px; }
 .scope-edit .chip { max-width: 260px; }
-.prompt-input { min-height: 220px; font-size: 12.5px; line-height: 1.6; }
+.prompt-input { font-size: 12.5px; line-height: 1.6; resize: none; }
 
 /* ------------------------------------------------------------------ responsive */
 

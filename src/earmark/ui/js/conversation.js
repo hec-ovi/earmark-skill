@@ -3,7 +3,7 @@
 import { html, useState, useRef, useEffect } from './lib.js';
 import { state, set, mutate, loadDetail, toast } from './state.js';
 import { enc } from './api.js';
-import { Icon, IconButton, Avatar, KindBadge, Age, agentOf, Kbd, RoleBadge, PriorityIcon, StatusIcon } from './components.js';
+import { Icon, IconButton, Avatar, KindBadge, Age, agentOf, Kbd, RoleBadge, PriorityIcon, StatusIcon, useAutosize } from './components.js';
 import { AttachmentGallery, uploadFiles, pickFiles } from './attachments.js';
 import { renderMarkdown, excerpt } from './markdown.js';
 import { KIND, COMPOSER_KINDS, eventText, EVENT_ICON, PRIORITY, STATUS } from './meta.js';
@@ -58,6 +58,7 @@ function Comment({ c, issue, parent, onReply, fresh, atts }) {
   const owner = state.board && state.board.owner === c.author;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(c.body);
+  const editRef = useAutosize(editing ? draft : '', 3, 16);
   const prefix = state.board ? state.board.prefix : null;
   const uploads = state.uploads.filter((u) => u.comment === c.id);
   const copyCursor = async () => {
@@ -98,7 +99,7 @@ function Comment({ c, issue, parent, onReply, fresh, atts }) {
       </button>` : null}
       ${editing
         ? html`<div class="comment-edit">
-            <textarea class="textarea" rows="4" value=${draft} aria-label="Edit comment" onInput=${(e) => setDraft(e.target.value)}
+            <textarea class="textarea" rows="3" value=${draft} ref=${editRef} aria-label="Edit comment" onInput=${(e) => setDraft(e.target.value)}
               onKeyDown=${(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); } if (e.key === 'Escape') { e.stopPropagation(); setEditing(false); } }}></textarea>
             <div class="edit-actions"><button type="button" class="btn btn-sm" onClick=${() => setEditing(false)}>Cancel</button>
               <button type="button" class="btn btn-sm btn-primary" onClick=${save}>Save</button></div>
@@ -125,13 +126,7 @@ function Composer({ issue, replyTo, clearReply }) {
   const [kind, setKind] = useState('note');
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState([]);
-  const ta = useRef(null);
-  useEffect(() => {
-    const el = ta.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = Math.min(320, Math.max(72, el.scrollHeight)) + 'px';
-  }, [body]);
+  const ta = useAutosize(body, 3, 14);
   const filesRef = useRef(files);
   filesRef.current = files;
   useEffect(() => () => filesRef.current.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);

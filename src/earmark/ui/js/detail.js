@@ -8,7 +8,7 @@ import {
 import { api, get, qs, enc } from './api.js';
 import {
   Icon, IconButton, StatusIcon, PriorityIcon, Avatar, LabelChip, Menu, openPopover, closePopover, Spinner, Empty,
-  RoleBadge, PresenceDot, agentOf, topicIconName, confirmDialog, Age, TypeIcon, mdClick,
+  RoleBadge, PresenceDot, agentOf, topicIconName, confirmDialog, Age, TypeIcon, mdClick, autosize, useAutosize,
 } from './components.js';
 import { statusMenu, priorityMenu } from './list.js';
 import { openTopicPicker } from './topics.js';
@@ -409,6 +409,7 @@ function Description({ issue }) {
   const [draft, setDraft] = useState(issue.body || '');
   const [busy, setBusy] = useState(false);
   const prefix = state.board ? state.board.prefix : null;
+  const bodyRef = useAutosize(draft, 6, 24);
   useEffect(() => { if (!editing) setDraft(issue.body || ''); }, [issue.body, editing]);
   const save = async () => {
     setBusy(true);
@@ -428,8 +429,8 @@ function Description({ issue }) {
   if (editing) {
     return html`<section class="section">
       <div class="section-head"><h3 class="section-title">Description</h3></div>
-      <textarea class="textarea md-input" rows="10" value=${draft} aria-label="Description (Markdown)" data-autofocus
-        ref=${(el) => { if (el && !el.dataset.f) { el.dataset.f = '1'; el.focus(); } }}
+      <textarea class="textarea md-input" rows="6" value=${draft} aria-label="Description (Markdown)" data-autofocus
+        ref=${(el) => { bodyRef.current = el; if (el && !el.dataset.f) { el.dataset.f = '1'; autosize(el, 6, 24); el.focus(); } }}
         placeholder="What is the problem, what does done look like? Markdown works."
         onInput=${(e) => setDraft(e.target.value)}
         onKeyDown=${(e) => {

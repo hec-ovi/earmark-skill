@@ -3,7 +3,7 @@
 import { html, useState, useRef } from './lib.js';
 import { state, set, mutate, toast, refreshNow, issueHref, navigate } from './state.js';
 import {
-  Dialog, Icon, Menu, openPopover, StatusIcon, PriorityIcon, Avatar, LabelChip, topicIconName, Kbd,
+  Dialog, Icon, Menu, openPopover, StatusIcon, PriorityIcon, Avatar, LabelChip, topicIconName, Kbd, useAutosize,
 } from './components.js';
 import { openTopicPicker } from './topics.js';
 import { STATUS, PRIORITY, PRIORITY_KEYS, TYPE, TYPE_KEYS, ROLE } from './meta.js';
@@ -31,6 +31,7 @@ export function NewIssueDialog({ d }) {
   const [more, setMore] = useState(store.get('new.more', false));
   const [busy, setBusy] = useState(false);
   const titleRef = useRef(null);
+  const bodyRef = useAutosize(body, 4, 16);
   const node = topic ? state.topicIndex.get(topic) : null;
 
   const addLabel = () => {
@@ -100,7 +101,7 @@ export function NewIssueDialog({ d }) {
       <input ref=${titleRef} class="new-title" type="text" data-autofocus placeholder="Issue title" aria-label="Title" maxlength="200" value=${title}
         onInput=${(e) => setTitle(e.target.value)}
         onKeyDown=${(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); create(); } }} />
-      <textarea class="new-body" rows="5" placeholder="Add a description… Markdown works. Agents read this with earmark show."
+      <textarea class="new-body" rows="4" ref=${bodyRef} placeholder="Add a description… Markdown works. Agents read this with earmark show."
         aria-label="Description" value=${body} onInput=${(e) => setBody(e.target.value)}></textarea>
       <div class="new-props">
         <button type="button" class="pill" onClick=${pickStatus}><${StatusIcon} status=${status} size=${14} />${STATUS[status].label}</button>

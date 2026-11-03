@@ -3,7 +3,7 @@
 import { html, useState, useEffect } from './lib.js';
 import { state, set, mutate, loadProfiles, loadTeam, toast, issueHref } from './state.js';
 import {
-  Icon, Avatar, RoleBadge, CliBadge, PresenceDot, StatusIcon, PriorityIcon, Empty, Spinner, confirmDialog, Age,
+  Icon, Avatar, RoleBadge, CliBadge, PresenceDot, StatusIcon, PriorityIcon, Empty, Spinner, confirmDialog, Age, useAutosize,
 } from './components.js';
 import { openTopicPicker, IconGrid } from './topics.js';
 import { ROLE, ROLE_KEYS, PRESENCE } from './meta.js';
@@ -111,6 +111,7 @@ function ProfileEditor({ p, onDone }) {
   const [topics, setTopics] = useState(p ? p.topics || [] : []);
   const [prompt, setPrompt] = useState(p ? p.prompt || '' : '');
   const [busy, setBusy] = useState(false);
+  const promptRef = useAutosize(prompt, 6, 24);
   const dirty = isNew || name !== p.name || role !== p.role || icon !== p.icon || prompt !== (p.prompt || '') || JSON.stringify(topics) !== JSON.stringify(p.topics || []);
   const slugOk = SLUG_RE.test(slug) && slug.length <= 32;
 
@@ -179,7 +180,7 @@ function ProfileEditor({ p, onDone }) {
     </div>
     <label class="field">
       <span class="field-label">Prompt <span class="field-help">printed to the agent by earmark join</span></span>
-      <textarea class="textarea mono prompt-input" rows="12" value=${prompt} placeholder="You own the player-facing UI. Match the style guide…"
+      <textarea class="textarea mono prompt-input" rows="6" value=${prompt} ref=${promptRef} placeholder="You own the player-facing UI. Match the style guide…"
         onInput=${(e) => setPrompt(e.target.value)}></textarea>
     </label>
     ${!isNew ? html`<div class="field"><span class="field-label">Agents using it</span>
