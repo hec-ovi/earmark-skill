@@ -1,0 +1,45 @@
+# Raw ideas, notes and screenshots (local only)
+docs/IDEA.md
+docs/notes/
+docs/screenshots/
+.research/
+
+# Internal agent instruction files
+CLAUDE.md
+AGENTS.md
+
+# Boards created while developing or testing
+.earmark/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# Test / cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local agent state
+.claude/
+.grok/
+.codex/
+.env
+.cache/
+node_modules/
