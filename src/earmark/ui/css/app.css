@@ -590,6 +590,37 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 .mini-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .mini-kind { flex: none; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-3); font-size: 11.5px; white-space: nowrap; }
 
+/* full-page issue */
+.content.is-issue { overflow: hidden; }
+.issue-page { display: flex; flex-direction: column; height: 100%; overflow: auto; outline: none; scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
+.page-head { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 0 var(--gutter); }
+.issue-page-grid {
+  display: grid; grid-template-columns: minmax(0, 760px) 300px; justify-content: center; gap: 40px;
+  width: 100%; max-width: 1200px; margin: 0 auto; padding: 28px var(--gutter) 72px;
+}
+.issue-page-main { min-width: 0; }
+.issue-page-main .issue-title { font-size: 24px; }
+.issue-page-main .title-input { font-size: 24px; }
+.issue-page-side { position: sticky; top: 72px; align-self: start; min-width: 0; }
+.props.is-column {
+  grid-template-columns: minmax(0, 1fr); padding: 8px 14px 12px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-side);
+}
+.props.is-column .prop.is-wide { grid-column: auto; }
+.props.is-column .prop { grid-template-columns: 84px minmax(0, 1fr); }
+.props.is-column .props-meta { flex-direction: column; gap: 2px; border-top: 1px solid var(--border-row); margin-top: 6px; padding-top: 10px; }
+.props.is-column .props-meta > span:not([title]) { display: none; }
+.page-props-inline { display: none; }
+@container main (max-width: 980px) {
+  .issue-page-grid { grid-template-columns: minmax(0, 1fr); gap: 0; padding-top: 16px; }
+  .issue-page-side { display: none; }
+  .page-props-inline { display: block; margin-bottom: 8px; }
+  .props.is-column { grid-template-columns: 1fr 1fr; column-gap: 20px; }
+}
+@container main (max-width: 600px) {
+  .props.is-column { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ------------------------------------------------------------------ markdown */
 
 .md { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
@@ -941,3 +972,4 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 }
 .nowrap { white-space: nowrap; }
 .agent-issue .mono, .menu-item .mono, .mini-key, .linked .mono { flex: none; white-space: nowrap; }
+.props.is-column .prop-sub { display: none; }

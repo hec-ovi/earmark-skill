@@ -42,7 +42,7 @@ export function parseHash(hash) {
     layout = 'board';
     parts.shift();
   }
-  if (parts[0] === 'issue' && parts[1]) return { page: 'issue', key: parts[1].toUpperCase() };
+  if (parts[0] === 'issue' && parts[1]) return { page: 'issue', key: parts[1].toUpperCase(), full: parts[2] === 'full' };
   if (parts[0] === 'team') return { page: 'team' };
   if (parts[0] === 'topic' && parts.length > 1) return { page: 'issues', layout, scope: { type: 'topic', path: parts.slice(1).join('/') } };
   if (parts[0] === 'view' && VIEWS[parts[1]]) return { page: 'issues', layout, scope: { type: 'view', view: parts[1] } };
@@ -50,7 +50,7 @@ export function parseHash(hash) {
 }
 
 export function hrefFor(route) {
-  if (route.page === 'issue') return `#/issue/${route.key}`;
+  if (route.page === 'issue') return `#/issue/${route.key}${route.full ? '/full' : ''}`;
   if (route.page === 'team') return '#/team';
   const pre = route.layout === 'board' ? '#/board' : '#';
   const s = route.scope || { type: 'view', view: 'all' };
@@ -59,7 +59,14 @@ export function hrefFor(route) {
   return route.layout === 'board' ? '#/board' : '#/';
 }
 
-export const issueHref = (key) => `#/issue/${key}`;
+/** Issues open the way the user last chose: slide-over panel or full page. */
+export const prefersFull = () => store.get('issue.full', false) === true;
+export const issueHref = (key, full = prefersFull()) => `#/issue/${key}${full ? '/full' : ''}`;
+
+export function setIssueLayout(full) {
+  store.set('issue.full', !!full);
+  if (state.route.page === 'issue') navigate(issueHref(state.route.key, !!full));
+}
 export const topicHref = (path, layout = currentLayout()) => hrefFor({ page: 'issues', layout, scope: { type: 'topic', path } });
 export const viewHref = (view, layout = currentLayout()) => hrefFor({ page: 'issues', layout, scope: { type: 'view', view } });
 
@@ -78,6 +85,10 @@ export function closeIssue() {
 
 function onRoute() {
   const route = parseHash(location.hash);
+  if (route.page === 'issue' && !route.full && prefersFull()) {
+    location.replace(issueHref(route.key, true));
+    return;
+  }
   const patch = { route, sidebarOpen: false, popover: null };
   if (route.page === 'issues') {
     const prevSig = state.base && JSON.stringify(state.base);

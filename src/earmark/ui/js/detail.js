@@ -1,9 +1,9 @@
-// Issue detail: slide-over on wide screens, full page on narrow ones (#/issue/GAME-42).
+// Issue detail: slide-over panel (#/issue/GAME-42) or full page (#/issue/GAME-42/full).
 
 import { html, useState, useEffect, useRef } from './lib.js';
 import {
   state, set, closeIssue, issueHref, navigate, moveStatus, patchIssue, assignIssue, mutate, applyIssue,
-  linkedCache, loadDetail, refreshNow, toast, handleError,
+  linkedCache, loadDetail, refreshNow, toast, handleError, setIssueLayout,
 } from './state.js';
 import { api, get, qs, enc } from './api.js';
 import {
@@ -18,32 +18,86 @@ import { STATUS, PRIORITY, TYPE, TYPE_KEYS, LINKS, ROLE } from './meta.js';
 import { cx, copyText, dueInfo, todayISO, absTime, untilText, ago, LABEL_RE, plural } from './util.js';
 import { openNewIssue } from './newissue.js';
 
-export function IssuePanel() {
-  const d = state.detail;
+function IssueHead({ d, full }) {
+  const issue = d.issue;
+  return html`<div class=${cx('panel-head', full && 'page-head')}>
+    <${IconButton} icon="arrow-left" label="Back to the list" cls=${full ? null : 'panel-back'} onClick=${closeIssue} />
+    ${issue ? html`<${StatusIcon} status=${issue.status} size=${16} />` : null}
+    <button type="button" class="key-copy mono" title="Copy key" onClick=${async () => { if (await copyText(d.key)) toast({ kind: 'success', title: `Copied ${d.key}` }); }}>
+      ${d.key}<${Icon} name="copy" size=${12} /></button>
+    ${issue && issue.parent ? html`<span class="panel-parent">in <a class="mono" href=${issueHref(issue.parent)}>${issue.parent}</a></span>` : null}
+    <span class="top-spacer"></span>
+    <${IconButton} icon=${full ? 'minimize-2' : 'maximize-2'} cls="layout-toggle" kbd="f"
+      label=${full ? 'Open as a side panel' : 'Open as a full page'} onClick=${() => setIssueLayout(!full)} />
+    ${issue ? html`<${IconButton} icon="ellipsis" label="More actions" onClick=${(e) => issueMenu(e.currentTarget, issue)} />` : null}
+    ${full ? null : html`<${IconButton} icon="x" label="Close (Esc)" cls="panel-x" onClick=${closeIssue} />`}
+  </div>`;
+}
+
+function IssueState({ d }) {
+  if (d.loading && !d.issue) return html`<div class="list-loading"><${Spinner} /> Loading ${d.key}…</div>`;
+  if (d.error && !d.issue) {
+    return html`<${Empty} icon="circle-alert" title=${d.error.code === 'not_found' ? `${d.key} does not exist` : 'Could not load this issue'}
+      action=${html`<button type="button" class="btn" onClick=${closeIssue}>Back to the list</button>`}>${d.error.message}</${Empty}>`;
+  }
+  return null;
+}
+
+function useFocusOnOpen(d) {
   const ref = useRef(null);
   useEffect(() => {
     if (ref.current && !ref.current.contains(document.activeElement)) ref.current.focus({ preventScroll: true });
   }, [d && d.key]);
+  return ref;
+}
+
+/** Slide-over panel (default on wide screens; full screen below 700 px). */
+export function IssuePanel() {
+  const d = state.detail;
+  const ref = useFocusOnOpen(d);
   if (!d) return null;
   const issue = d.issue;
   return html`<aside class="panel" ref=${ref} tabindex="-1" aria-label=${'Issue ' + d.key}>
-    <div class="panel-head">
-      <${IconButton} icon="arrow-left" label="Back to list" cls="panel-back" onClick=${closeIssue} />
-      ${issue ? html`<${StatusIcon} status=${issue.status} size=${16} />` : null}
-      <button type="button" class="key-copy mono" title="Copy key" onClick=${async () => { if (await copyText(d.key)) toast({ kind: 'success', title: `Copied ${d.key}` }); }}>
-        ${d.key}<${Icon} name="copy" size=${12} /></button>
-      ${issue && issue.parent ? html`<span class="panel-parent">in <a class="mono" href=${issueHref(issue.parent)}>${issue.parent}</a></span>` : null}
-      <span class="top-spacer"></span>
-      ${issue ? html`<${IconButton} icon="ellipsis" label="More actions" onClick=${(e) => issueMenu(e.currentTarget, issue)} />` : null}
-      <${IconButton} icon="x" label="Close (Esc)" cls="panel-x" onClick=${closeIssue} />
-    </div>
+    <${IssueHead} d=${d} />
     <div class="panel-scroll">
-      ${d.loading && !issue ? html`<div class="list-loading"><${Spinner} /> Loading ${d.key}…</div>` : null}
-      ${d.error && !issue ? html`<${Empty} icon="circle-alert" title=${d.error.code === 'not_found' ? `${d.key} does not exist` : 'Could not load this issue'}
-        action=${html`<button type="button" class="btn" onClick=${closeIssue}>Back to the list</button>`}>${d.error.message}</${Empty}>` : null}
-      ${issue ? html`<${IssueBody} issue=${issue} d=${d} key=${issue.key} />` : null}
+      <${IssueState} d=${d} />
+      ${issue ? html`<div class="issue" key=${issue.key}>
+        <${Title} issue=${issue} />
+        <${HolderBanner} issue=${issue} />
+        <${Properties} issue=${issue} />
+        <${Description} issue=${issue} />
+        <${SubIssues} issue=${issue} />
+        <${Links} issue=${issue} />
+        <${Conversation} issue=${issue} d=${d} />
+      </div>` : null}
     </div>
   </aside>`;
+}
+
+/** Full-page issue (#/issue/GAME-42/full): reading column plus a sticky properties column. */
+export function IssuePage() {
+  const d = state.detail;
+  const ref = useFocusOnOpen(d);
+  if (!d) return null;
+  const issue = d.issue;
+  return html`<div class="issue-page" ref=${ref} tabindex="-1" aria-label=${'Issue ' + d.key}>
+    <${IssueHead} d=${d} full />
+    <${IssueState} d=${d} />
+    ${issue ? html`<div class="issue-page-grid" key=${issue.key}>
+      <div class="issue-page-main">
+        <${Title} issue=${issue} />
+        <${HolderBanner} issue=${issue} />
+        <div class="page-props-inline"><${Properties} issue=${issue} column /></div>
+        <${Description} issue=${issue} />
+        <${SubIssues} issue=${issue} />
+        <${Links} issue=${issue} />
+        <${Conversation} issue=${issue} d=${d} />
+      </div>
+      <aside class="issue-page-side" aria-label="Properties">
+        <${Properties} issue=${issue} column />
+      </aside>
+    </div>` : null}
+  </div>`;
 }
 
 function issueMenu(anchor, issue) {
@@ -73,18 +127,6 @@ function issueMenu(anchor, issue) {
       });
     }
   }} />`, { width: 240, align: 'right' });
-}
-
-function IssueBody({ issue, d }) {
-  return html`<div class="issue">
-    <${Title} issue=${issue} />
-    <${HolderBanner} issue=${issue} />
-    <${Properties} issue=${issue} />
-    <${Description} issue=${issue} />
-    <${SubIssues} issue=${issue} />
-    <${Links} issue=${issue} />
-    <${Conversation} issue=${issue} d=${d} />
-  </div>`;
 }
 
 // ---------------------------------------------------------------- title
@@ -157,11 +199,11 @@ function PropButton({ onClick, children, muted, label }) {
   return html`<button type="button" class=${cx('prop-btn', muted && 'is-muted')} aria-label=${label} onClick=${onClick}>${children}</button>`;
 }
 
-function Properties({ issue }) {
+function Properties({ issue, column }) {
   const due = dueInfo(issue.due, issue.status);
   const topic = issue.topic ? state.topicIndex.get(issue.topic) : null;
   const assignee = agentOf(issue.assignee);
-  return html`<div class="props">
+  return html`<div class=${cx('props', column && 'is-column')}>
     <${Prop} label="Status" icon="workflow">
       <${PropButton} label="Change status" onClick=${(e) => statusMenu(e.currentTarget, issue, (v) => moveStatus(issue.key, v))}>
         <${StatusIcon} status=${issue.status} /><span>${STATUS[issue.status].label}</span></${PropButton}>

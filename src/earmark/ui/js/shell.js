@@ -5,7 +5,7 @@ import {
   state, set, viewHref, hrefFor, setFilters, setSort, activeFilterCount, emptyFilters, topicHref, navigate,
 } from './state.js';
 import {
-  Icon, IconButton, Menu, openPopover, Avatar, Kbd, topicIconName, StatusIcon, PriorityIcon,
+  Icon, IconButton, Menu, openPopover, Avatar, Kbd, topicIconName, topicName, StatusIcon, PriorityIcon,
 } from './components.js';
 import { TopicTree, openTopicDialog } from './topics.js';
 import { VIEWS, STATUS, STATUS_KEYS, PRIORITY, PRIORITY_KEYS, TYPE, TYPE_KEYS, ROLE } from './meta.js';
@@ -76,6 +76,17 @@ export function Sidebar() {
 
 function Crumbs() {
   const r = state.route;
+  if (r.page === 'issue' && r.full) {
+    const scope = state.base.scope;
+    const label = scope.type === 'topic' ? topicName(scope.path) : (VIEWS[scope.view] || VIEWS.all).label;
+    const icon = scope.type === 'topic' ? topicIconName(state.topicIndex.get(scope.path) || { children: [] }) : (VIEWS[scope.view] || VIEWS.all).icon;
+    return html`<nav class="crumbs" aria-label="Location">
+      <${Icon} name=${icon} size=${16} cls="crumb-ico" />
+      <a class="crumb" href=${hrefFor(state.base)}>${label}</a>
+      <${Icon} name="chevron-right" size=${14} cls="crumb-sep" />
+      <h1 class="crumb-cur mono">${r.key}</h1>
+    </nav>`;
+  }
   if (r.page === 'team') {
     return html`<div class="crumbs"><${Icon} name="users" size=${16} cls="crumb-ico" /><h1 class="crumb-cur">Team</h1></div>`;
   }
@@ -151,7 +162,7 @@ function ThemeToggle() {
 
 export function TopBar() {
   const r = state.route;
-  const showTools = r.page !== 'team';
+  const showTools = r.page !== 'team' && !(r.page === 'issue' && r.full);
   return html`<header class="top">
     <div class="top-row">
       <${IconButton} icon="panel-left" label="Show navigation" cls="menu-btn" onClick=${() => set({ sidebarOpen: true })} />

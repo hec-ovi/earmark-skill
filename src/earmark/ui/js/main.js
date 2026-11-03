@@ -1,12 +1,12 @@
 // earmark web UI entry: shell, routing, keyboard shortcuts.
 
 import { html, render, useEffect } from './lib.js';
-import { state, set, useStore, boot, closeIssue, navigate, issueHref, hrefFor } from './state.js';
+import { state, set, useStore, boot, closeIssue, navigate, issueHref, hrefFor, setIssueLayout } from './state.js';
 import { loadSprite, PopoverHost, Toasts, ConfirmDialog, Dialog, Kbd, Icon, Empty, closePopover } from './components.js';
 import { Sidebar, TopBar, applyTheme } from './shell.js';
 import { IssueList, visibleKeys } from './list.js';
 import { Board } from './board.js';
-import { IssuePanel } from './detail.js';
+import { IssuePanel, IssuePage } from './detail.js';
 import { TeamPage } from './team.js';
 import { NewIssueDialog, openNewIssue } from './newissue.js';
 import { TopicDialog } from './topics.js';
@@ -17,6 +17,7 @@ const SHORTCUTS = [
   ['c', 'New issue'],
   ['j / k', 'Next / previous issue'],
   ['Enter', 'Open the selected issue'],
+  ['f', 'Issue as full page / side panel'],
   ['Esc', 'Close panel, dialog or menu'],
   ['?', 'Show this help'],
   ['Ctrl / ⌘ + Enter', 'Send a comment, save a description'],
@@ -63,15 +64,17 @@ function App() {
   if (state.bootError) return html`<${BootError} e=${state.bootError} />`;
   if (!state.ready) return html`<div class="boot-msg">Loading board…</div>`;
   const r = state.route;
-  const issueOpen = r.page === 'issue';
-  const main = r.page === 'team' ? html`<${TeamPage} />` : state.base.layout === 'board' ? html`<${Board} />` : html`<${IssueList} />`;
-  return html`<div class=${cx('shell', issueOpen && 'has-panel', state.sidebarOpen && 'side-open')}>
+  const fullIssue = r.page === 'issue' && r.full;
+  const panel = r.page === 'issue' && !r.full;
+  const kind = fullIssue ? 'is-issue' : r.page === 'team' ? 'is-team' : state.base.layout === 'board' ? 'is-board' : 'is-list';
+  const main = fullIssue ? html`<${IssuePage} />` : r.page === 'team' ? html`<${TeamPage} />` : state.base.layout === 'board' ? html`<${Board} />` : html`<${IssueList} />`;
+  return html`<div class=${cx('shell', panel && 'has-panel', state.sidebarOpen && 'side-open')}>
     <${Sidebar} />
     <div class="main">
       <${TopBar} />
-      <main class=${cx('content', r.page === 'team' ? 'is-team' : state.base.layout === 'board' ? 'is-board' : 'is-list')} id="content">${main}</main>
+      <main class=${cx('content', kind)} id="content">${main}</main>
     </div>
-    ${issueOpen ? html`<${IssuePanel} />` : null}
+    ${panel ? html`<${IssuePanel} />` : null}
     <${DialogHost} />
     <${PopoverHost} />
     <${Toasts} />
@@ -92,6 +95,7 @@ function handleKey(e) {
   if (e.key === '/') { e.preventDefault(); if (state.route.page === 'issue' && window.innerWidth < 700) closeIssue(); setTimeout(() => window.dispatchEvent(new Event('earmark:search')), 0); return; }
   if (e.key === 'c') { e.preventDefault(); openNewIssue(); return; }
   if (e.key === '?') { e.preventDefault(); set({ dialog: { type: 'help' } }); return; }
+  if (e.key === 'f' && state.route.page === 'issue') { e.preventDefault(); setIssueLayout(!state.route.full); return; }
   if (state.route.page === 'team') return;
   if (e.key === 'j' || e.key === 'k' || e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && e.target.closest && e.target.closest('.panel')) return;
