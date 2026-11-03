@@ -2,16 +2,37 @@
 
 from __future__ import annotations
 
+from earmark.errors import EarmarkError
+
 from earmark.cli import render as R
-from earmark.cli.common import Context, Result, _key, _labels
+from earmark.cli.common import Context, Result, _key, _labels, empty_text
 
 
 def _note(ctx: Context, a) -> str | None:
     return ctx.read_text(a.note, None, "note")
 
 
-def _moved(issue: dict, verb: str) -> Result:
+def _moved(issue: dict, verb: str, ctx: Context | None = None, a=None) -> Result:
+    """The one-line result of a move; with --next, then `next` (see then_next)."""
+    if a is not None and getattr(a, "then_next", False):
+        return then_next(ctx, issue, verb)
     return Result(issue, lambda: R.status_line(issue, verb))
+
+
+def then_next(ctx: Context, issue: dict, verb: str) -> Result:
+    """`review|approve|reject|done|release KEY --next`: the action (committed), then `next`.
+    Text: the action line, then next's output. Exit code and --json follow `next`: data
+    {action, next} on a claim; nothing left is exit 4 with the action in error.details."""
+    line = R.status_line(issue, verb)
+    try:
+        nxt, sel = claim_next(ctx)
+    except EarmarkError as exc:
+        err = exc
+        err.details = dict(err.details, action=issue) if isinstance(err.details, dict) else {"action": issue}
+        if err.code == "empty":
+            return Result(None, lambda: line + "\n" + empty_text("next", err, ctx), error=err)
+        return Result(None, line, error=err)
+    return Result({"action": issue, "next": nxt}, lambda: line + "\n\n" + next_text(ctx, nxt, sel))
 
 
 def claim_next(ctx: Context, *, review: bool | None = None, topics=(), dry_run: bool = False):
@@ -54,27 +75,27 @@ def cmd_claim(ctx: Context, a) -> Result:
 
 def cmd_release(ctx: Context, a) -> Result:
     note = _note(ctx, a)
-    return _moved(ctx.board().release(a.key, note=note), "released")
+    return _moved(ctx.board().release(a.key, note=note), "released", ctx, a)
 
 
 def cmd_review(ctx: Context, a) -> Result:
     note = _note(ctx, a)
-    return _moved(ctx.board().submit_review(a.key, note=note), "sent to review")
+    return _moved(ctx.board().submit_review(a.key, note=note), "sent to review", ctx, a)
 
 
 def cmd_approve(ctx: Context, a) -> Result:
     note = _note(ctx, a)
-    return _moved(ctx.board().approve(a.key, note=note), "approved")
+    return _moved(ctx.board().approve(a.key, note=note), "approved", ctx, a)
 
 
 def cmd_reject(ctx: Context, a) -> Result:
     note = _note(ctx, a)
-    return _moved(ctx.board().reject(a.key, note=note), "rejected")
+    return _moved(ctx.board().reject(a.key, note=note), "rejected", ctx, a)
 
 
 def cmd_done(ctx: Context, a) -> Result:
     note = _note(ctx, a)
-    return _moved(ctx.board().done(a.key, note=note), "done")
+    return _moved(ctx.board().done(a.key, note=note), "done", ctx, a)
 
 
 def cmd_move(ctx: Context, a) -> Result:

@@ -84,6 +84,62 @@ class NextTests(unittest.TestCase):
         self.assertEqual((code, out), (4, "nothing here\n"))
 
 
+class ThenNextTests(unittest.TestCase):
+    LINE = "GAME-42 approved · done"
+
+    def test_action_then_next(self):
+        for argv, method in ((["approve", "42"], "approve"), (["review", "42", "-m", "x"], "submit_review"),
+                             (["reject", "42", "-m", "x"], "reject"), (["done", "42"], "done"),
+                             (["release", "42"], "release")):
+            with self.subTest(argv=argv), fake_board(**{method: summary(status="done")}) as boards, \
+                    mock.patch("earmark.cli.render.today", return_value=DAY):
+                code, out, err = run_main(argv + ["--next", "--as", "claude-ui"])
+            self.assertEqual((code, err), (0, ""))
+            self.assertEqual([c[0] for c in boards[0].calls if c[0] in (method, "next", "list_comments")],
+                             [method, "next", "list_comments"])
+            first, rest = out.split("\n\n", 1)
+            self.assertTrue(first.startswith("GAME-42 "), first)
+            self.assertTrue(rest.startswith(contract_block("GAME-42  Eye color") + "\n\n2 new comments:"))
+
+    def test_nothing_left_exits_4_after_the_action(self):
+        with fake_board(approve=summary(status="done"), next=raiser(EMPTY)):
+            code, out, err = run_main(["approve", "42", "--next", "--as", "codex-qa"])
+        self.assertEqual((code, err), (4, ""))
+        self.assertEqual(out, self.LINE + "\n" + contract_line("next: nothing ready") + "\n")
+        with fake_board(approve=summary(status="done"), next=raiser(EMPTY)):
+            code, out, _ = run_main(["approve", "42", "--next", "--as", "codex-qa", "--json"])
+        env = json.loads(out)
+        self.assertEqual((code, env["ok"], env["error"]["code"]), (4, False, "empty"))
+        self.assertEqual(env["error"]["details"]["review_queue"], 3)
+        self.assertEqual(env["error"]["details"]["action"]["status"], "done")
+
+    def test_other_next_errors_keep_the_action_line(self):
+        busy = errors.Busy("board is busy", hint="retry")
+        with fake_board(approve=summary(status="done"), next=raiser(busy)):
+            code, out, err = run_main(["approve", "42", "--next", "--as", "codex-qa"])
+        self.assertEqual((code, out), (5, self.LINE + "\n"))
+        self.assertEqual(err, "error: board is busy\nhint: retry\n")
+
+    def test_json_on_claim(self):
+        with fake_board(approve=summary(status="done")):
+            code, out, _ = run_main(["approve", "42", "--next", "--as", "codex-qa", "--json"])
+        data = json.loads(out)["data"]
+        self.assertEqual((code, data["action"]["status"], data["next"]["key"]), (0, "done", "GAME-42"))
+        self.assertEqual(len(data["next"]["comments"]), 2)
+
+    def test_a_failed_action_runs_no_next(self):
+        exc = errors.Forbidden("only the reviewer approves")
+        with fake_board(approve=raiser(exc)) as boards:
+            code, out, _ = run_main(["approve", "42", "--next", "--as", "w"])
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(boards[0].called("next"), [])
+
+    def test_only_the_handoff_commands_take_it(self):
+        for cmd in (["claim", "42"], ["move", "42", "todo"], ["cancel", "42", "-m", "x"]):
+            code, _, err = run_main(cmd + ["--next", "--as", "w"])
+            self.assertEqual(code, 1, cmd)
+
+
 class MoveTests(unittest.TestCase):
     CASES = [
         (["claim", "42"], "claim", ((("42",), {})), "claimed"),

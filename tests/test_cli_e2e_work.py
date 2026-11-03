@@ -54,6 +54,18 @@ class WorkFlowTests(CliBoardCase):
         kinds = [ln.split()[2] for ln in self.ok("comments", "1").splitlines() if ln.startswith("#")]
         self.assertEqual(kinds, ["handoff", "changes", "handoff", "approval", "note"])
 
+    def test_handoff_then_next(self):
+        self.ok("claim", "1", as_="claude-ui")
+        code, out, err = self.cli("review", "1", "-m", "ready", "--next", as_="claude-ui")
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue(out.startswith("GAME-1 sent to review · in_review · assignee claude-ui\n\n"
+                                       "GAME-2  Mute button state\nstatus: in_progress"), out)
+        self.ok("claim", "1", as_="codex-qa")
+        code, out, _ = self.cli("approve", "1", "-m", "ok", "--next", as_="codex-qa")
+        self.assertEqual((code, out), (4, "GAME-1 approved · done\nnext: nothing to review in your scope · "
+                                          "review queue: 0 · inbox: 1 new · stale: 0\n"))
+        self.assertEqual(self.ok("show", "1", "-f", "status"), "status: done\n")  # committed anyway
+
     def test_release_move_done_cancel(self):
         self.ok("claim", "2", as_="claude-ui")
         self.assertEqual(self.ok("release", "2", "-m", "too big", as_="claude-ui"), "GAME-2 released · todo\n")

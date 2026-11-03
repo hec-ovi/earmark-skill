@@ -314,29 +314,39 @@ def b_claim(p):
     _key(p)
 
 
+def _then_next(p) -> None:
+    p.add_argument("--next", dest="then_next", action="store_true",
+                   help="then run `earmark next` and print both (its exit code: 4 when nothing is left)")
+
+
 def b_release(p):
     _key(p)
     _note(p, help="why ('-' reads stdin)")
+    _then_next(p)
 
 
 def b_review(p):
     _key(p)
     _note(p, required=True, help="handoff: what changed, files, how to verify ('-' reads stdin)")
+    _then_next(p)
 
 
 def b_approve(p):
     _key(p)
     _note(p, help="what you checked ('-' reads stdin)")
+    _then_next(p)
 
 
 def b_reject(p):
     _key(p)
     _note(p, required=True, help="each defect: file:line, expected, actual ('-' reads stdin)")
+    _then_next(p)
 
 
 def b_done(p):
     _key(p)
     _note(p)
+    _then_next(p)
 
 
 def b_move(p):
