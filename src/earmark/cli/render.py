@@ -929,6 +929,122 @@ def render_whoami(res: dict, *, style: Style = PLAIN, day: str | None = None) ->
     return "\n".join(lines)
 
 
+# ---- check ----------------------------------------------------------------------------------
+
+CHECK_LEASE_WARN_MIN = 15
+
+
+def lease_left(minutes: Any) -> str:
+    """Lease left: 1h40m, 2h, 12m; 'expired' at 0 or less."""
+    m = int(minutes)
+    if m <= 0:
+        return "expired"
+    h, m = divmod(m, 60)
+    return f"{h}h{m}m" if h and m else (f"{h}h" if h else f"{m}m")
+
+
+def _holding(h: dict) -> str:
+    left = h.get("lease_left_min")
+    key = str(h.get("key") or "?")
+    if left is None:
+        return key
+    if left < CHECK_LEASE_WARN_MIN:
+        return f"{key} (lease {lease_left(left)}, comment to renew)"
+    return f"{key} (lease {lease_left(left)})"
+
+
+def _check_since(since: Any, day: str) -> str:
+    """'14:05:09Z' for today (UTC), '11-02 14:05:09Z' for an earlier day."""
+    s = str(since)
+    if len(s) >= 19 and s[10] == "T":
+        return s[11:] if s[:10] == day else f"{s[5:10]} {s[11:]}"
+    return s
+
+
+def _arrow(c: dict) -> str:
+    return f"{dash(c.get('old'))}→{dash(c.get('new'))}"
+
+
+def _unblocked(c: dict) -> str:
+    old = c.get("old")
+    by = c.get("by_issue")
+    if isinstance(old, str) and " " in old:  # the event's own 'GAME-31 done'
+        return f"unblocked ({old})"
+    if by:
+        return f"unblocked ({by} {c.get('resolution') or 'done'})"
+    return "unblocked"
+
+
+def check_change(c: dict) -> str:
+    """One change of a checked issue, as few words as say what happened."""
+    kind = c.get("kind")
+    by = c.get("by")
+    if kind == "assigned":
+        return f"new for you (assigned by {by})" if by else "new for you"
+    if kind == "status":
+        return f"status {_arrow(c)}"
+    if kind in ("rejected", "approved"):
+        return f"{kind} ({by})" if by else str(kind)
+    if kind == "unblocked":
+        return _unblocked(c)
+    if kind == "review_cap":
+        return "review rounds exhausted"
+    if kind == "takeover":
+        return f"taken over ({by})" if by else "taken over"
+    if kind in ("field", "edit"):
+        field = c.get("field") or "field"
+        return f"{field} {_arrow(c)}" if field in ("priority", "status") else f"{field} changed"
+    return str(kind or "changed").replace("_", " ")
+
+
+def check_parts(item: dict) -> list[str]:
+    parts: list[str] = []
+    for c in item.get("changes") or []:
+        parts.append(check_change(c))
+        if c.get("kind") == "assigned":
+            if item.get("priority"):
+                parts.append(str(item["priority"]))
+            if item.get("blocks_open"):
+                parts.append(f"blocks:{item['blocks_open']}")
+    comments, questions = item.get("comments") or 0, item.get("questions") or 0
+    asked = "question for you" if questions == 1 else f"{questions} questions for you"
+    if comments:
+        parts.append(plural(comments, "new comment") + (f", {asked}" if questions else ""))
+    elif questions:
+        parts.append(asked)
+    if item.get("files"):
+        parts.append(plural(item["files"], "new file"))
+    return parts or ["changed"]
+
+
+def render_check(res: dict, *, day: str | None = None) -> str:
+    """`earmark check`: one header line (since when, what you hold, todo for you), then one line
+    per changed issue (`KEY  change · change`), then `+N more` when the board cut the list."""
+    if not isinstance(res, dict):
+        return dash(res)
+    day = day or today()
+    changed = res.get("changed") or []
+    since = res.get("since")
+    when = _check_since(since, day) if since else None
+    if changed:
+        head = [f"check: since {when}" if when else "check: changes"]
+    else:
+        head = [f"check: nothing new since {when}" if when else "check: nothing new"]
+    holding = res.get("holding") or []
+    if holding:
+        head.append("holding " + ", ".join(_holding(h) for h in holding))
+    if res.get("todo_for_you") is not None:
+        head.append(f"todo for you: {res['todo_for_you']}")
+    out = [SEP.join(head)]
+    width = max((len(str(i.get("key") or "?")) for i in changed), default=0)
+    for item in changed:
+        key = str(item.get("key") or "?")
+        out.append(f"{key:<{width}}  " + SEP.join(check_parts(item)))
+    if res.get("more"):
+        out.append(f"+{res['more']} more")
+    return "\n".join(out)
+
+
 TRIAGE_SECTIONS = (("backlog", "untriaged backlog"), ("unassigned", "unassigned todo"),
                    ("offline", "assigned to offline agents"),
                    ("stale", "stale claims"), ("review_queue", "review queue"),

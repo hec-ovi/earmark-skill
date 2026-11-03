@@ -1,4 +1,4 @@
-"""Team commands: join, leave, whoami, team, profiles, profile show/add/edit/rm, triage."""
+"""Team commands: join, leave, whoami, check, team, profiles, profile show/add/edit/rm, triage."""
 
 from __future__ import annotations
 
@@ -28,6 +28,15 @@ def cmd_leave(ctx: Context, a) -> Result:
 def cmd_whoami(ctx: Context, a) -> Result:
     res = ctx.board().whoami()
     return Result(res, lambda: R.render_whoami(res, style=ctx.style))
+
+
+def cmd_check(ctx: Context, a) -> Result:
+    b = ctx.board()
+    check = getattr(b, "check", None)
+    if check is None:
+        raise NotImplementedError("earmark check needs a board with the check feed")
+    res = check(peek=a.peek)
+    return Result(res, lambda: R.render_check(res))
 
 
 def cmd_team(ctx: Context, a) -> Result:

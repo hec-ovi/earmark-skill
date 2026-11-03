@@ -52,6 +52,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "join": ("Team", "register as a profile and print your briefing"),
     "leave": ("Team", "go offline and return your work to the queue"),
     "whoami": ("Team", "your handle, profile, role, scope and issues"),
+    "check": ("Team", "what changed for you since your last check, by others; --peek keeps the cursor"),
     "team": ("Team", "every agent: role, profile, cli, presence, current issues"),
     "profiles": ("Team", "list profiles"),
     "profile": ("Team", "show, add, edit or rm a profile"),
@@ -77,7 +78,7 @@ usage: earmark [--as HANDLE] [--db PATH] [--json] <command> [args]
   Write   new  edit  comment  link  unlink  assign  rank  delete
   Files   attach  attachments  attachment  detach
   Topics  topic add | edit | mv | rm
-  Team    join  leave  whoami  team  profiles  profile show | add | edit | rm  triage
+  Team    join  leave  whoami  check  team  profiles  profile show | add | edit | rm  triage
   Board   init  info  wait  ui  export  backup  doctor  config
 
 examples:
@@ -509,6 +510,10 @@ def b_leave(p):
 
 def b_none(p):
     pass
+
+
+def b_check(p):
+    p.add_argument("--peek", action="store_true", help="do not advance your check cursor")
 
 
 b_whoami = b_team = b_profiles = b_info = b_export = b_none
