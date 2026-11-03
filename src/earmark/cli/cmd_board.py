@@ -74,20 +74,21 @@ def cmd_wait(ctx: Context, a) -> Result:
     import time
     timeout = parse_duration(a.timeout)
     interval = max(0.05, a.interval)
+    mode = "changes" if a.mode == "inbox" else a.mode  # the old name of the check-feed mode
     b = ctx.board()
     deadline = time.monotonic() + timeout
     version = b.data_version()
-    hit = b.wait_check(a.mode)
+    hit = b.wait_check(mode)
     while not hit:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise Empty(f"wait: nothing new in {a.timeout}{R.SEP}for: {a.mode}",
-                        details={"mode": a.mode, "timeout_seconds": timeout})
+            raise Empty(f"wait: nothing new in {a.timeout}{R.SEP}for: {mode}",
+                        details={"mode": mode, "timeout_seconds": timeout})
         time.sleep(min(interval, remaining))
         current = b.data_version()
         if current != version:
             version = current
-            hit = b.wait_check(a.mode)
+            hit = b.wait_check(mode)
     return Result(hit, lambda: R.render_wait(hit))
 
 

@@ -1178,11 +1178,11 @@ def render_info(res: dict) -> str:
     return "\n".join(lines)
 
 
-WAIT_NEXT = {"work": "earmark next", "review": "earmark next --review", "inbox": "earmark inbox"}
+WAIT_NEXT = {"work": "earmark next", "review": "earmark next --review"}
 
 
 def render_wait(hit: Any) -> str:
-    """What arrived, and the command that takes it."""
+    """What arrived, and the command that takes it (`wait: changes · 2 for you: earmark check`)."""
     if not isinstance(hit, dict):
         return f"wait: {dash(hit)}"
     reason = hit.get("reason") or "something arrived"
@@ -1193,7 +1193,8 @@ def render_wait(hit: Any) -> str:
     if key:
         parts.append(f"{key} {title}" if title else key)
     if isinstance(hit.get("count"), int):
-        parts.append(f"{hit['count']} new" if reason == "inbox" else f"count: {hit['count']}")
+        parts.append(f"{hit['count']} for you: earmark check" if reason == "changes"
+                     else f"count: {hit['count']}")
     for k, v in hit.items():
         if k in ("reason", "issue", "key", "title", "hint", "count") or isinstance(v, (dict, list)):
             continue

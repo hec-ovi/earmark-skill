@@ -59,7 +59,7 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "triage": ("Team", "pm view: what needs triage, assignment or attention"),
     "init": ("Board", "create .earmark/earmark.db here and seed profiles"),
     "info": ("Board", "board path, prefix, counts by status, agents online, sizes"),
-    "wait": ("Board", "block read-only until work, a review or inbox arrives"),
+    "wait": ("Board", "block read-only until work, a review or a change for you arrives"),
     "ui": ("Board", "web UI on 127.0.0.1"),
     "export": ("Board", "JSON dump of the board to stdout"),
     "backup": ("Board", "consistent copy: DIR/earmark.db and DIR/files/"),
@@ -98,7 +98,7 @@ run `earmark <command> -h` for its flags
 STATUSES = ("backlog", "todo", "in_progress", "in_review", "blocked", "done", "canceled")
 SORTS = ("priority", "rank", "updated", "created", "due", "key")
 LINK_KINDS = ("blocks", "duplicates", "relates")
-WAIT_MODES = ("work", "review", "inbox", "any")
+WAIT_MODES = ("work", "review", "changes", "any", "inbox")  # inbox: an alias of changes
 
 
 class ParseExit(Exception):
@@ -568,7 +568,8 @@ def b_init(p):
 
 def b_wait(p):
     p.add_argument("--for", dest="mode", choices=WAIT_MODES, default="any", metavar="MODE",
-                   help="work, review, inbox or any (default)")
+                   help="work, review, changes (what check would report) or any (default: "
+                        "changes, or your role's work or review); inbox = changes")
     p.add_argument("--timeout", default="9m", metavar="T", help="e.g. 90s, 9m (default), 1h")
     p.add_argument("--interval", type=float, default=2.0, help=argparse.SUPPRESS)
 
