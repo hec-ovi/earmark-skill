@@ -858,9 +858,14 @@ class Seeder:
             kw["due"] = self.due(spec["due"])
         if spec.get("parent"):
             kw["parent"] = self.k(spec["parent"])
-        if spec.get("assignee"):
-            kw["assignee"] = spec["assignee"]
+        assignee = spec.get("assignee")
+        # Only the owner or a pm may assign someone else at creation; the reporter can assign itself.
+        delegated = assignee and assignee != spec["by"] and spec["by"] != OWNER
+        if assignee and not delegated:
+            kw["assignee"] = assignee
         issue = self.act(spec["by"]).create_issue(spec["title"], **kw)
+        if delegated:
+            self.act(OWNER).assign(issue["key"], assignee)
         self.keys[alias] = issue["key"]
         return issue["key"]
 
