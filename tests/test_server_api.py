@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from tests.test_server_fixtures import FakeServerCase, errors, issue
+from tests.test_server_fixtures import FakeServerCase, errors, issue, topic
 
 
 class EnvelopeTests(FakeServerCase):
@@ -24,6 +24,12 @@ class EnvelopeTests(FakeServerCase):
             self.assertIsInstance(data["enums"][name], list)
         self.assertIn("in_review", data["enums"]["statuses"])
         self.assertTrue(data["version"])
+
+    def test_board_settings_name_the_review_cap(self):
+        self.store.results["info"] = {"prefix": "GAME", "owner": "owner",
+                                      "settings": {"require_review": True, "lease_minutes": 120,
+                                                   "max_attachment_mb": 50, "max_review_rounds": 4}}
+        self.assertEqual(self.assertEnvelopeOk(self.call("GET", "/api/board"))["settings"]["max_review_rounds"], 4)
 
     def test_board_settings_from_flat_info(self):
         self.store.results["info"] = {"prefix": "GAME", "owner": "owner", "require_review": False,
@@ -91,6 +97,23 @@ class ErrorMappingTests(FakeServerCase):
         self.assertEqual(err["details"]["version"], 5)
         self.assertEqual(err["details"]["title"], "Current")
 
+    def test_version_conflict_keeps_current_version_and_events_since(self):
+        events = [{"id": 7, "issue": "GAME-4", "actor": "claude-ui", "action": "edit", "old": "title=A",
+                   "new": "title=B", "at": "2026-11-03T10:00:00Z"}]
+        self.store.fail["update_issue"] = errors.Conflict(
+            "GAME-4 changed: you have version 3, it is now 5",
+            details=dict(issue("GAME-4", version=5), current_version=5, events_since=events))
+        self.store.results["get_issue"] = lambda a, k: issue(a[0], version=5, title="Current")
+        err = self.assertEnvelopeError(self.call("PATCH", "/api/issues/GAME-4", {"version": 3, "title": "x"}),
+                                       409, "conflict")
+        self.assertEqual((err["details"]["title"], err["details"]["current_version"]), ("Current", 5))
+        self.assertEqual(err["details"]["events_since"], events)
+        self.store.fail["move"] = errors.Conflict("held", details={"holder": "codex-qa", "lease_until": "L"})
+        err = self.assertEnvelopeError(self.call("POST", "/api/issues/GAME-2/status", {"status": "done"}),
+                                       409, "conflict")
+        self.assertEqual((err["details"]["key"], err["details"]["holder"]), ("GAME-2", "codex-qa"))
+        self.assertIsNone(err["details"]["lease_until"])  # the issue's own field wins
+
     def test_conflict_on_status_move_carries_current_issue(self):
         self.store.fail["move"] = errors.Conflict("held by claude-ui until 16:05")
         err = self.assertEnvelopeError(self.call("POST", "/api/issues/GAME-2/status", {"status": "done"}),
@@ -142,13 +165,15 @@ class TopicRouteTests(FakeServerCase):
         self.assertEqual(kw, {"name": "Rendering", "position": 2, "archived": False})
         self.assertNotIn("move_topic", self.store.names())
 
-    def test_edit_path_moves(self):
+    def test_edit_path_moves_in_the_same_call(self):
+        self.store.results["edit_topic"] = lambda a, k: dict(topic(3), path=k.get("path", "engine"))
         data = self.assertEnvelopeOk(self.call("PATCH", "/api/topics/3", {"path": "engine/gfx"}))
-        self.assertEqual(self.store.last("move_topic")[0], (3, "engine/gfx"))
+        self.assertEqual(self.store.last("edit_topic"), ((3,), {"path": "engine/gfx"}))
         self.assertEqual(data["path"], "engine/gfx")
-        self.assertNotIn("edit_topic", self.store.names())
         self.call("PATCH", "/api/topics/3", {"path": "engine/gfx2", "name": "Graphics"})
-        self.assertEqual(self.store.names()[-2:], ["move_topic", "edit_topic"])
+        self.assertEqual(self.store.last("edit_topic"), ((3,), {"path": "engine/gfx2", "name": "Graphics"}))
+        self.assertNotIn("move_topic", self.store.names())
+        self.assertEqual(self.store.names().count("edit_topic"), 2)
 
     def test_edit_null_clears_icon_and_description(self):
         self.call("PATCH", "/api/topics/3", {"icon": None, "description": None})
@@ -172,6 +197,10 @@ class TopicRouteTests(FakeServerCase):
         self.assertEqual(self.store.last("remove_topic"), ((4,), {}))
         self.call("DELETE", "/api/topics/4?archive=1")
         self.assertEqual(self.store.last("remove_topic"), ((4,), {"archive": True}))
+        self.store.results["remove_topic"] = {"deleted": 12, "path": "ui-ux/hud"}
+        data = self.assertEnvelopeOk(self.call("DELETE", "/api/topics/ui-ux%2Fhud"))
+        self.assertEqual(data, {"deleted": 12})  # the numeric id, also when named by path
+        self.assertEqual(self.store.last("remove_topic"), (("ui-ux/hud",), {}))
 
 
 class IssueReadRouteTests(FakeServerCase):

@@ -138,9 +138,15 @@ class Handler(BaseHTTPRequestHandler):
             if not self._host_ok():
                 raise Forbidden("unexpected Host header",
                                 hint=f"open http://127.0.0.1:{self.server.port}/")
+            is_api = path == "/api" or path.startswith("/api/")
+            if is_api and not self._fetch_site_ok():
+                raise Forbidden("request from another site refused",
+                                hint=f"open http://127.0.0.1:{self.server.port}/")
             if path == api.STREAM_PATH and method == "GET":
+                if not self._origin_ok():
+                    raise Forbidden("cross-origin request refused")
                 self._stream()
-            elif path == "/api" or path.startswith("/api/"):
+            elif is_api:
                 self._api(method, path, split.query)
             else:
                 self._static(method, path)
@@ -191,6 +197,13 @@ class Handler(BaseHTTPRequestHandler):
     def _host_ok(self) -> bool:
         host = (self.headers.get("Host") or "").strip().lower()
         return host in self.server.allowed_hosts
+
+    def _fetch_site_ok(self) -> bool:
+        """Browsers say who sent a request: the UI's own page (same-origin) or the user typing
+        the URL (none). Another site, or another port on this host (same-site), may not use the
+        API, not even GETs, which would hold stream slots or load the board for it."""
+        site = (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+        return site in ("", "same-origin", "none")
 
     def _origin_ok(self) -> bool:
         origin = self.headers.get("Origin")
@@ -516,10 +529,11 @@ INLINE_MAJOR = ("image/", "audio/", "video/")
 
 
 def inline_type(mime: str) -> bool:
-    """Shown in the page: images (not SVG, which can carry script), audio, video, PDF, plain text."""
+    """Shown in the page: images (not SVG, which can carry script), audio, video, plain text.
+    PDFs download: the sandbox CSP every file carries keeps Chrome's PDF viewer from loading."""
     if mime == "image/svg+xml":
         return False
-    return mime.startswith(INLINE_MAJOR) or mime in ("application/pdf", "text/plain")
+    return mime.startswith(INLINE_MAJOR) or mime == "text/plain"
 
 
 def _disposition(kind: str, name: str) -> str:

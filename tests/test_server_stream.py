@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import unittest
@@ -64,6 +65,22 @@ class StreamTests(FakeServerCase):
         reader = SSEReader(self.h.port, host="evil.example:80")
         self.addCleanup(reader.close)
         self.assertEqual(reader.status, 403)
+
+    def test_other_sites_get_no_stream(self):
+        for headers in ({"Sec-Fetch-Site": "cross-site"}, {"Sec-Fetch-Site": "same-site"},
+                        {"Origin": "http://evil.example"}, {"Origin": "null"},
+                        {"Origin": f"http://localhost:{self.h.port + 1}"}):
+            with self.subTest(headers=headers):
+                reader = SSEReader(self.h.port, headers=headers)
+                self.addCleanup(reader.close)
+                self.assertEqual(reader.status, 403)
+                self.assertEqual(json.loads(reader.read_body())["error"]["code"], "forbidden")
+        self.assertEqual(self.h.server.hub.count, 0)  # refused before taking a slot
+        for headers in ({"Origin": f"http://127.0.0.1:{self.h.port}"}, {"Sec-Fetch-Site": "same-origin"}):
+            with self.subTest(headers=headers):
+                reader = SSEReader(self.h.port, headers=headers)
+                self.addCleanup(reader.close)
+                self.assertEqual(reader.status, 200)
 
     def test_disconnect_frees_the_slot(self):
         reader = self.open_stream()

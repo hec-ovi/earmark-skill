@@ -52,7 +52,7 @@ class RealServerCase(unittest.TestCase):
         self.assertEqual(env["meta"]["actor"], "owner")
         return env["data"]
 
-    def fail(self, method: str, path: str, body=None, *, status: int, code: str) -> dict:
+    def refused(self, method: str, path: str, body=None, *, status: int, code: str) -> dict:
         resp = self.h.request(method, path, body)
         self.assertEqual(resp.status, status, resp.body)
         env = resp.json
@@ -68,7 +68,7 @@ class RealRouteTests(RealServerCase):
         self.assertEqual(data["prefix"], "GAME")
         self.assertEqual(data["owner"], "owner")
         self.assertEqual(data["settings"], {"require_review": True, "lease_minutes": 120,
-                                            "max_attachment_mb": 50})
+                                            "max_attachment_mb": 50, "max_review_rounds": 3})
         self.assertEqual(set(data["counts"]), {"by_status", "open", "total"})
         self.assertEqual(set(data["enums"]) >= {"statuses", "priorities", "types", "comment_kinds",
                                                  "roles", "link_kinds"}, True)
@@ -87,12 +87,21 @@ class RealRouteTests(RealServerCase):
         self.assertEqual(edited["name"], "Physics & cloth")
         moved = self.ok("PATCH", f"/api/topics/{tid}", {"path": "engine/sim"})
         self.assertEqual((moved["id"], moved["path"]), (tid, "engine/sim"))
+        # path and fields together: a bad field leaves the move undone
+        self.refused("PATCH", f"/api/topics/{tid}", {"path": "engine/sim2", "name": "   "},
+                     status=400, code="invalid_request")
+        self.assertIn("engine/sim", [c["path"] for c in self.ok("GET", "/api/topics")[1]["children"]])
+        both = self.ok("PATCH", "/api/topics/engine%2Fsim", {"path": "engine/sim2", "name": "Sim"})
+        self.assertEqual((both["id"], both["path"], both["name"]), (tid, "engine/sim2", "Sim"))
+        self.ok("PATCH", f"/api/topics/{tid}", {"path": "engine/sim"})
         self.ok("PATCH", f"/api/topics/{tid}", {"archived": True})
         self.assertNotIn("engine/sim", [c["path"] for c in self.ok("GET", "/api/topics")[1]["children"]])
         self.assertIn("engine/sim", [c["path"] for c in self.ok("GET", "/api/topics?all=1")[1]["children"]])
         self.assertEqual(self.ok("DELETE", f"/api/topics/{tid}"), {"deleted": tid})
-        self.fail("DELETE", f"/api/topics/{tid}", status=404, code="not_found")
-        self.fail("POST", "/api/topics", {"path": "Bad Path!"}, status=400, code="invalid_request")
+        by_path = self.ok("POST", "/api/topics", {"path": "engine/tmp"})["id"]
+        self.assertEqual(self.ok("DELETE", "/api/topics/engine%2Ftmp"), {"deleted": by_path})
+        self.refused("DELETE", f"/api/topics/{tid}", status=404, code="not_found")
+        self.refused("POST", "/api/topics", {"path": "Bad Path!"}, status=400, code="invalid_request")
 
     def test_status_route_unblocks_the_waiting_issue(self):
         waiting = self.worker.create_issue("HUD ammo", topic="ui-ux/hud", priority="high")["key"]
@@ -138,7 +147,7 @@ class RealRouteTests(RealServerCase):
                                                            "due": None})
         self.assertEqual((patched["title"], patched["due"]), ("Ammo counter overlap", None))
         self.assertEqual(patched["version"], v + 1)
-        err = self.fail("PATCH", f"/api/issues/{key}", {"version": v, "title": "Stale"}, status=409,
+        err = self.refused("PATCH", f"/api/issues/{key}", {"version": v, "title": "Stale"}, status=409,
                         code="conflict")
         self.assertEqual(err["details"]["key"], key)
         self.assertEqual(err["details"]["version"], v + 1)
@@ -147,11 +156,11 @@ class RealRouteTests(RealServerCase):
         self.assertEqual(self.ok("POST", f"/api/issues/{key}/assign", {"assignee": "claude-ui"})["assignee"],
                          "claude-ui")
         self.assertIsNone(self.ok("POST", f"/api/issues/{key}/assign", {"assignee": None})["assignee"])
-        self.fail("POST", f"/api/issues/{key}/assign", {"assignee": "nobody"}, status=404, code="not_found")
+        self.refused("POST", f"/api/issues/{key}/assign", {"assignee": "nobody"}, status=404, code="not_found")
 
         moved = self.ok("POST", f"/api/issues/{key}/status", {"status": "in_progress", "note": "on it"})
         self.assertEqual(moved["status"], "in_progress")
-        self.fail("POST", f"/api/issues/{key}/status", {"status": "sideways"}, status=400,
+        self.refused("POST", f"/api/issues/{key}/status", {"status": "sideways"}, status=400,
                   code="invalid_request")
 
         ranked = self.ok("POST", f"/api/issues/{other}/rank", {"top": True})
@@ -175,7 +184,7 @@ class RealRouteTests(RealServerCase):
         self.assertTrue(all(e["id"] > ids[-1] for e in older["items"]))
 
         self.assertEqual(self.ok("DELETE", f"/api/issues/{other}"), {"deleted": other})
-        self.fail("GET", f"/api/issues/{other}", status=404, code="not_found")
+        self.refused("GET", f"/api/issues/{other}", status=404, code="not_found")
 
     def test_comments(self):
         key = self.ok("POST", "/api/issues", {"title": "Eye color resets"})["key"]
@@ -197,9 +206,9 @@ class RealRouteTests(RealServerCase):
         self.assertEqual(edited["body"], "Repro on HDD builds only")
         self.assertTrue(edited["edited_at"])
         theirs = self.worker.add_comment(key, "Looking now")
-        self.fail("PATCH", f"/api/comments/{theirs['id']}", {"body": "hijack"}, status=403, code="forbidden")
-        self.fail("PATCH", "/api/comments/99999", {"body": "x"}, status=404, code="not_found")
-        self.fail("POST", f"/api/issues/{key}/comments", {"body": "x", "kind": "approval"}, status=400,
+        self.refused("PATCH", f"/api/comments/{theirs['id']}", {"body": "hijack"}, status=403, code="forbidden")
+        self.refused("PATCH", "/api/comments/99999", {"body": "x"}, status=404, code="not_found")
+        self.refused("POST", f"/api/issues/{key}/comments", {"body": "x", "kind": "approval"}, status=400,
                   code="invalid_request")
 
     def test_held_issue_conflict_carries_issue(self):
@@ -209,7 +218,7 @@ class RealRouteTests(RealServerCase):
         # a stale version is the owner's conflict
         current = self.ok("GET", f"/api/issues/{key}")
         self.assertEqual((current["status"], current["assignee"]), ("in_progress", "claude-ui"))
-        err = self.fail("PATCH", f"/api/issues/{key}", {"version": current["version"] - 1, "title": "x"},
+        err = self.refused("PATCH", f"/api/issues/{key}", {"version": current["version"] - 1, "title": "x"},
                         status=409, code="conflict")
         self.assertEqual(err["details"]["assignee"], "claude-ui")
 
@@ -228,21 +237,21 @@ class RealRouteTests(RealServerCase):
         self.assertEqual((made["slug"], made["topics"]), ("ui-lead", ["ui-ux"]))
         edited = self.ok("PATCH", "/api/profiles/ui-lead", {"version": made["version"], "prompt": "Own it all."})
         self.assertEqual(edited["prompt"], "Own it all.")
-        err = self.fail("PATCH", "/api/profiles/ui-lead", {"version": made["version"], "name": "Stale"},
+        err = self.refused("PATCH", "/api/profiles/ui-lead", {"version": made["version"], "name": "Stale"},
                         status=409, code="conflict")
         self.assertEqual(err["details"]["slug"], "ui-lead")
         self.assertEqual(err["details"]["version"], edited["version"])
-        self.fail("POST", "/api/profiles", {"slug": "ui-lead", "name": "Again", "role": "worker"},
+        self.refused("POST", "/api/profiles", {"slug": "ui-lead", "name": "Again", "role": "worker"},
                   status=409, code="conflict")
         self.assertEqual(self.ok("DELETE", "/api/profiles/ui-lead"), {"deleted": "ui-lead"})
-        self.fail("DELETE", "/api/profiles/ui-lead", status=404, code="not_found")
+        self.refused("DELETE", "/api/profiles/ui-lead", status=404, code="not_found")
 
     def test_errors(self):
-        self.fail("GET", "/api/issues/GAME-404", status=404, code="not_found")
-        self.fail("GET", "/api/issues/not-a-key", status=400, code="invalid_request")
-        self.fail("POST", "/api/issues", {"title": "x", "priority": "p9"}, status=400, code="invalid_request")
-        self.fail("POST", "/api/issues", {"title": "x", "topic": "nope"}, status=404, code="not_found")
-        self.fail("GET", "/api/issues?status=sideways", status=400, code="invalid_request")
+        self.refused("GET", "/api/issues/GAME-404", status=404, code="not_found")
+        self.refused("GET", "/api/issues/not-a-key", status=400, code="invalid_request")
+        self.refused("POST", "/api/issues", {"title": "x", "priority": "p9"}, status=400, code="invalid_request")
+        self.refused("POST", "/api/issues", {"title": "x", "topic": "nope"}, status=404, code="not_found")
+        self.refused("GET", "/api/issues?status=sideways", status=400, code="invalid_request")
 
 
 class RealStreamTests(RealServerCase):

@@ -196,7 +196,7 @@ class RawTests(AttachmentRouteCase):
 
     def test_inline_or_download_by_type(self):
         cases = [("clip.wav", b"RIFF", True, "audio/"), ("movie.mp4", b"mp4", True, "video/mp4"),
-                 ("spec.pdf", b"%PDF-1.7", True, "application/pdf"),
+                 ("spec.pdf", b"%PDF-1.7", False, "application/octet-stream"),  # the sandbox stops the viewer
                  ("run.log", b"line\n", True, "text/plain; charset=utf-8"),
                  ("page.html", b"<script>alert(1)</script>", False, "application/octet-stream"),
                  ("icon.svg", b"<svg onload=alert(1)/>", False, "application/octet-stream"),

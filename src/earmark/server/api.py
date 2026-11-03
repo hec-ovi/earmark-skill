@@ -160,15 +160,24 @@ def _topic_ref(raw: str) -> str | int:
 
 
 # ---- board -------------------------------------------------------------------------------
+SETTINGS = ("require_review", "lease_minutes", "max_attachment_mb", "max_review_rounds")
+
+
 def get_board(r: Request) -> dict:
     info = r.board.info() or {}
     data = dict(info)
     data["prefix"] = info.get("prefix", getattr(r.board, "prefix", None))
     data["owner"] = info.get("owner", getattr(r.board, "owner", None))
     settings = dict(info.get("settings") or {})
-    for name in ("require_review", "lease_minutes"):
-        if name not in settings and name in info:
+    for name in SETTINGS:
+        if name in settings:
+            continue
+        if name in info:
             settings[name] = info[name]
+        else:
+            value = getattr(r.board, name, None)
+            if isinstance(value, (bool, int)):
+                settings[name] = value
     data["settings"] = settings
     counts = info.get("counts") or {}
     data["counts"] = {
@@ -205,22 +214,18 @@ def edit_topic(r: Request) -> dict:
     for name in ("icon", "description"):
         if name in b and b[name] is None:
             b[name] = ""  # null clears; the board reads None as "unchanged"
-    result = None
-    if "path" in b:
-        result = r.board.move_topic(ref, b.pop("path"))
-        if isinstance(result, dict) and result.get("id") is not None:
-            ref = result["id"]
-    if b:
-        result = r.board.edit_topic(ref, **b)
-    return result
+    # one call: the board validates everything, then moves and edits in one transaction
+    return r.board.edit_topic(ref, **b)
 
 
 def remove_topic(r: Request) -> dict:
     ref = _topic_ref(r.params["id"])
     if r.qbool("archive"):  # extension: archive a non-empty subtree instead of deleting it
         return r.board.remove_topic(ref, archive=True)
-    r.board.remove_topic(ref)
-    return {"deleted": ref}
+    result = r.board.remove_topic(ref)
+    deleted = result.get("deleted") if isinstance(result, dict) else None
+    # the numeric id, also when the topic was named by its path
+    return {"deleted": deleted if isinstance(deleted, int) else ref}
 
 
 # ---- issues: read ------------------------------------------------------------------------
@@ -550,11 +555,26 @@ def run(route: Route, req: Request) -> Any:
         raise
 
 
+# what the board puts in a conflict's details beside the object: kept on the wire
+CONFLICT_EXTRAS = ("current_version", "events_since", "holder", "lease_until")
+
+
 def _attach_current(route: Route, req: Request, exc: EarmarkError) -> None:
+    """error.details = the current Issue (or Profile), merged with the board's own conflict
+    details (current_version, events_since, ...) so the UI can show what changed."""
     try:
         if route.conflict == "issue":
-            exc.details = req.board.get_issue(req.params["key"])
+            current = req.board.get_issue(req.params["key"])
         elif route.conflict == "profile":
-            exc.details = req.board.get_profile(req.params["slug"])
+            current = req.board.get_profile(req.params["slug"])
+        else:
+            return
     except EarmarkError:
-        pass
+        return
+    if isinstance(current, dict):
+        given = exc.details if isinstance(exc.details, dict) else {}
+        current = dict(current)
+        for name in CONFLICT_EXTRAS:
+            if name in given:
+                current.setdefault(name, given[name])
+    exc.details = current

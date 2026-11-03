@@ -89,6 +89,19 @@ class WriteGuardTests(FakeServerCase):
                          headers={"Origin": f"http://127.0.0.1:{self.h.port}"})
         self.assertEnvelopeOk(resp)
 
+    def test_other_sites_are_refused_on_the_api(self):
+        for site in ("cross-site", "same-site", "Cross-Site"):
+            with self.subTest(site=site):
+                resp = self.call("GET", "/api/issues", headers={"Sec-Fetch-Site": site})
+                err = self.assertEnvelopeError(resp, 403, "forbidden")
+                self.assertIn("another site", err["message"])
+                resp = self.call("POST", "/api/issues", {"title": "x"}, headers={"Sec-Fetch-Site": site})
+                self.assertEnvelopeError(resp, 403, "forbidden")
+        self.assertEqual(self.store.names(), [])
+        for site in ("same-origin", "none", None):
+            with self.subTest(site=site):
+                self.assertEnvelopeOk(self.call("GET", "/api/board", headers={"Sec-Fetch-Site": site}))
+
     def test_oversize_body(self):
         """The server answers 413 without reading the body, then reads and drops the rest
         before it closes, so a client still sending gets the answer, not a reset. The client

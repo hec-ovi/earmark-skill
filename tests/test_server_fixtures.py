@@ -241,10 +241,12 @@ class ServerHarness:
 class SSEReader:
     """Minimal Server-Sent Events client over a raw socket."""
 
-    def __init__(self, port: int, *, host: str | None = None, timeout: float = 5.0) -> None:
+    def __init__(self, port: int, *, host: str | None = None, timeout: float = 5.0,
+                 headers: dict | None = None) -> None:
         self.sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+        extra = "".join(f"{k}: {v}\r\n" for k, v in (headers or {}).items())
         self.sock.sendall((f"GET /api/stream HTTP/1.1\r\nHost: {host or f'127.0.0.1:{port}'}\r\n"
-                           "Accept: text/event-stream\r\n\r\n").encode())
+                           f"Accept: text/event-stream\r\n{extra}\r\n").encode())
         self.buf = b""
         head = self._read_until(b"\r\n\r\n", timeout)
         lines = head.decode("latin-1").split("\r\n")
