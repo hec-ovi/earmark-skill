@@ -14,7 +14,6 @@ row keeps the file. A crash in between leaves at most an unreferenced file (`doc
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 
@@ -53,6 +52,7 @@ def too_large(name: str, limit_mb: int, size: int | None = None) -> PayloadTooLa
 def stage(root: str, name: str, stream, limit_mb: int, hint: str | None = None) -> Staged:
     """Stream `stream` (binary, .read(n)) into a temp file in root while hashing it; fsync it.
     Raises PayloadTooLarge past the limit; the temp file is removed on any failure."""
+    import hashlib  # here, not at import: off the `earmark ls` startup path
     import tempfile
 
     clean = model.parse_file_name(name)
@@ -163,6 +163,8 @@ class AttachmentsMixin:
     def save_attachment(self, attachment_id: str | int, dest: str) -> dict:
         """Copy the file to dest (a new file, or a directory: dest/<name>), checking its sha256.
         {attachment, path, bytes}."""
+        import hashlib
+
         item = self.get_attachment(attachment_id)
         target = os.path.abspath(os.path.expanduser(dest))
         if os.path.isdir(target):

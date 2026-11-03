@@ -7,7 +7,6 @@ import hashlib
 import io
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import time
