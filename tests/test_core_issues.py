@@ -70,15 +70,31 @@ class Create(BoardCase):
             self.issue("x" * 201)
 
     def test_status_on_create(self):
-        worker = self.agent("w1")
-        with self.assertRaises(InvalidRequest):
-            worker.create_issue("x", status="in_progress")
+        worker, pm = self.agent("w1"), self.agent("pm-1", "pm")
         self.assertEqual(worker.create_issue("idea", status="backlog")["status"], "backlog")
-        started = self.issue("owner starts", status="in_progress")
-        self.assertEqual((started["assignee"], started["lease_until"]), ("owner", "2026-11-03T11:00:00Z"))
-        self.assertIsNotNone(started["started_at"])
-        done = self.issue("already done", status="done")
-        self.assertIsNotNone(done["resolved_at"])
+        self.assertEqual(worker.create_issue("plain")["status"], "todo")
+        for creator in (worker, pm, self.board):
+            for status in ("in_progress", "in_review", "blocked", "done", "canceled"):
+                with self.subTest(creator=creator.actor, status=status):
+                    with self.assertRaises(InvalidRequest):
+                        creator.create_issue("x", status=status)
+        self.assertEqual(self.board.list_issues(status="all")["total"], 2)
+
+    def test_assign_on_create(self):  # r05
+        w1, w2, pm = self.agent("w1"), self.agent("w2"), self.agent("pm-1", "pm")
+        with self.assertRaises(Forbidden) as ctx:
+            w1.create_issue("y", assignee="w2")
+        self.assertIn("--assign me", ctx.exception.hint)
+        self.assertEqual(self.board.list_issues()["total"], 0)
+        mine = w1.create_issue("mine", assignee="me")
+        self.assertEqual(w1.create_issue("mine too", assignee="w1")["assignee"], "w1")
+        self.assertEqual(w1.create_issue("nobody", assignee="none")["assignee"], None)
+        self.assertEqual(pm.create_issue("for w2", assignee="w2")["assignee"], "w2")
+        self.assertEqual(self.issue("for w1", assignee="w1")["assignee"], "w1")
+        self.assertEqual(mine["assignee"], "w1")
+        log = [(e["action"], e["old"], e["new"]) for e in self.board.issue_events(mine["key"])]
+        self.assertEqual(log, [("created", None, "mine"), ("assignee", None, "w1")])
+        self.assertEqual(w2.get_issue(mine["key"])["assignee"], "w1")
 
     def test_identity(self):
         anon = self.open_as(None)

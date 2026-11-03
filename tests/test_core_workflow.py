@@ -262,12 +262,14 @@ class Unassign(BoardCase):
 
     def test_review_steps_need_an_assignee(self):
         w1 = self.agent("w1")
-        orphan = self.issue("orphan", status="in_review")["key"]
+        orphan = self.issue("orphan")["key"]
+        self.board.move(orphan, "in_review")
         with self.assertRaises(InvalidRequest):
             w1.approve(orphan)
         with self.assertRaises(InvalidRequest):
             w1.reject(orphan, note="no")
-        started = self.issue("started", status="in_progress")["key"]
+        started = self.issue("started")["key"]
+        self.board.move(started, "in_progress")
         with self.board.conn:
             self.board.conn.execute("UPDATE issues SET assignee = NULL WHERE id = ?",
                                     (int(started.split("-")[1]),))

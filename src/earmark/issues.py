@@ -200,28 +200,35 @@ class IssuesMixin:
                      priority: str = "medium", type: str = "task", status: str = "todo",
                      labels: Iterable[str] = (), due: str | None = None,
                      parent: str | None = None, assignee: str | None = None) -> dict:
+        """New issue in backlog or todo (later statuses come through moves and claims, so their
+        side effects and events always happen). Only the owner or a pm assigns someone else;
+        anyone may assign themselves."""
         title = _title(title)
         body = str(body or "")
         prio = model.parse_priority(priority if priority is not None else "medium")
         kind = model.parse_type(type or "task")
         state = model.parse_status(status or "todo")
+        if state not in ("backlog", "todo"):
+            raise InvalidRequest(f"new issues start in backlog or todo, not {state}",
+                                 hint="earmark new TITLE [--status backlog], then earmark claim KEY")
         tags = model.parse_labels(labels)
         due_at = timeutil.parse_date(due) if due else None
         with self._tx() as tx:
-            if state not in ("backlog", "todo") and not tx.privileged:
-                raise InvalidRequest("new issues start in backlog or todo",
-                                     hint="earmark new TITLE [--status backlog]")
             conn = tx.conn
             topic_id = self._topic_id(conn, topic) if topic else None
             parent_id = self._issue_id(conn, parent) if parent else None
             wanted = str(assignee or "").strip().lower()
             owner = self._agent_handle(conn, wanted) if wanted not in ("", "none") else None
+            if owner is not None and owner != tx.actor and not tx.privileged:
+                raise Forbidden(f"only the owner or a pm can assign issues to others; you may "
+                                f"assign only yourself ({tx.actor})",
+                                hint=f"earmark new \"{title}\" --assign me  (or leave it "
+                                     f"unassigned; earmark comment KEY \"@{owner} ...\")")
             rank = conn.execute("SELECT coalesce(max(rank), 0) FROM issues").fetchone()[0] + RANK_STEP
             row = {"title": title, "body": body, "type": kind, "status": state, "priority": prio,
                    "topic_id": topic_id, "parent_id": parent_id, "reporter": tx.actor,
                    "assignee": owner, "rank": rank, "due_at": due_at, "created_at": tx.ts,
                    "updated_at": tx.ts}
-            row.update(self._initial_status_fields(tx, state, owner))
             cols = ", ".join(row)
             cur = conn.execute(f"INSERT INTO issues({cols}) VALUES ({','.join('?' * len(row))})",
                                list(row.values()))
@@ -229,18 +236,9 @@ class IssuesMixin:
             conn.executemany("INSERT INTO labels(issue_id, label) VALUES (?, ?)",
                              [(issue_id, t) for t in tags])
             self._event(tx, issue_id, "created", None, title)
+            if owner is not None:
+                self._event(tx, issue_id, "assignee", None, owner)
             return self._detail(conn, issue_id)
-
-    @staticmethod
-    def _initial_status_fields(tx: Tx, status: str, assignee: str | None) -> dict:
-        if status == "in_progress":
-            return {"assignee": assignee or tx.actor, "lease_until": tx.lease_until(),
-                    "started_at": tx.ts}
-        if status == "in_review":
-            return {"review_requested_at": tx.ts}
-        if status in model.CLOSED:
-            return {"resolved_at": tx.ts}
-        return {}
 
     def update_issue(self, key: str, *, if_version: int | None = None, append: str | None = None,
                      add_labels: Iterable[str] = (), remove_labels: Iterable[str] = (),
