@@ -1,4 +1,5 @@
-"""Measurements: bytes written for 1,000 comment writes; list_issues on 2,000 issues.
+"""Measurements: bytes written for 1,000 comment writes; list_issues on 2,000 issues;
+pending_changes (the dirty hint) on 2,000 issues and 10,000 comments.
 
 Results print to stderr; set EARMARK_PERF_QUIET=1 to silence them.
 """
@@ -17,6 +18,7 @@ import unittest
 from tests.support import make_board
 
 from earmark import db, timeutil
+from earmark.board import Board
 
 QUIET = os.environ.get("EARMARK_PERF_QUIET") == "1"
 
@@ -105,6 +107,55 @@ class Measure(unittest.TestCase):
         self.assertLess(open_default, 50)
         self.assertLess(filtered, 50)
         self.assertLess(everything, 250)
+
+    def test_pending_changes_on_2000_issues_and_10000_comments(self):
+        """The dirty hint runs after every write command: it must stay well under a millisecond."""
+        b = self.board
+        b.join("worker", handle="w1")
+        b.set_actor("owner")
+        self._seed(2000)
+        rng = random.Random(11)
+        ts = timeutil.now_iso()
+        others = ["w2", "w3", "r1", "pm-1"]
+        with db.write(b.conn) as conn:
+            for handle in others:
+                conn.execute("INSERT INTO agents(handle, kind, profile, cli, online, joined_at, "
+                             "last_seen) VALUES (?, 'agent', 'worker', 'perf', 1, ?, ?)", (handle, ts, ts))
+            conn.execute("UPDATE issues SET assignee = 'w1' WHERE id % 15 = 0")
+            conn.executemany("INSERT INTO events(issue_id, actor, action, old, new, at) "
+                             "VALUES (?, ?, ?, 'a', 'b', ?)",
+                             [(rng.randrange(1, 2001), rng.choice(others),
+                               rng.choice(["status", "claim", "title", "assignee", "rank"]), ts)
+                              for _ in range(8000)])
+            rows = [(rng.randrange(1, 2001), rng.choice(others), ts) for _ in range(6000)]
+            conn.executemany("INSERT INTO comments(issue_id, author, kind, body, created_at) "
+                             "VALUES (?, ?, 'note', 'ping @w1', ?)", rows)
+            conn.execute("INSERT INTO mentions(comment_id, handle) SELECT id, 'w1' FROM comments "
+                         "WHERE id % 40 = 0")
+        b.conn.execute("DROP TABLE IF EXISTS sqlite_stat1")  # boards never run ANALYZE
+        comments = b.conn.execute("SELECT count(*) FROM comments").fetchone()[0]
+        self.assertGreaterEqual(comments, 10000)
+        heads = b.heads()
+        b.close()
+        self.board = b = Board.open(db=b.path, actor="w1")  # a fresh connection, as each command
+        results = {}
+        for name, behind in (("fresh", 0), ("200 events behind", 200), ("never checked", None)):
+            ev = 0 if behind is None else heads["event_id"] - behind
+            cm = 0 if behind is None else heads["comment_id"] - behind // 2
+            with db.write(b.conn) as conn:
+                conn.execute("UPDATE cursors SET last_event_id = ?, last_comment_id = ? "
+                             "WHERE agent = 'w1' AND scope = 'check'", (ev, cm))
+            count = b.pending_changes()
+            per_call = timed(lambda: [b.pending_changes() for _ in range(200)], runs=5) / 200
+            feed = b.check(peek=True)
+            self.assertEqual(count, len(feed["changed"]) + feed["more"], name)
+            results[name] = (per_call, count)
+        report("pending_changes on 2,000 issues / {:,} comments / {:,} events, 133 issues "
+               "assigned: ".format(comments, heads["event_id"]) + ", ".join(
+                   f"{name} {ms:.3f} ms ({n} issues)" for name, (ms, n) in results.items()))
+        self.assertLess(results["fresh"][0], 2)
+        self.assertLess(results["200 events behind"][0], 2)
+        self.assertLess(results["never checked"][0], 10)
 
     def _seed(self, n: int) -> None:
         """Bulk rows through SQL in one transaction (setup only; the reads are what we time)."""

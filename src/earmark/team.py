@@ -1,4 +1,5 @@
-"""Profiles, join/leave, presence, whoami, team, triage and wait_check."""
+"""Profiles, join/leave, presence, whoami, team, triage, wait_check, and `check` (the
+per-agent change feed) with its read-only count `pending_changes` (the dirty hint)."""
 
 from __future__ import annotations
 
@@ -12,6 +13,66 @@ from earmark.service import Tx
 
 PROFILE_FIELDS = ("name", "role", "icon", "prompt", "topics")
 TRIAGE_LIMIT = 100
+
+# ---- check: the per-agent change feed (cursor scope 'check': last event id, last comment id) --
+# Only writes by others count, after the cursor (and, for `check`, up to the heads read at its
+# start). Every row below maps to a change kind or a count, so `pending_changes` (a count of
+# distinct issues over the same queries) is exactly the number of issues `check` lists.
+# Plans are pinned (CROSS JOIN order, INDEXED BY): the agent's own issues, then index seeks into
+# their events and comments after the cursor, so the cost follows the agent's share of the board,
+# never how long ago it last checked, whatever statistics the board carries.
+CHECK_LIMIT = 10
+CHECK_ACTIONS = ("status", "assignee", "approve", "reject", "unblocked", "review_cap", "title",
+                 "body", "priority", "type", "topic", "due", "labels", "parent", "link", "unlink",
+                 "attach")
+_SEATS = (("assignee", "issues_assignee"), ("reviewer", "issues_reviewer"))
+# events on issues the agent is assignee or reviewer of
+CHECK_EVENTS_MINE = [
+    f"SELECT {{cols}} FROM issues i INDEXED BY {index} CROSS JOIN events e INDEXED BY "
+    f"events_issue ON e.issue_id = i.id AND e.id > :ev{{upto}} WHERE i.{seat} = :me "
+    f"AND e.actor <> :me AND e.action IN ({', '.join(repr(a) for a in CHECK_ACTIONS)})"
+    for seat, index in _SEATS]
+# assignment changes naming the agent, which may hold the issue no more (index: events_action)
+CHECK_EVENTS_NAMING = [
+    "SELECT {cols} FROM events e WHERE e.action IN ('assignee', 'takeover', 'release') "
+    "AND e.id > :ev{upto} AND e.actor <> :me AND e.issue_id IS NOT NULL "
+    "AND (e.old = :me OR (e.action = 'assignee' AND e.new = :me))"]
+# comments on its issues, and comments anywhere mentioning it
+CHECK_COMMENTS_MINE = [
+    f"SELECT {{cols}} FROM issues i INDEXED BY {index} CROSS JOIN comments c INDEXED BY "
+    f"comments_issue ON c.issue_id = i.id AND c.id > :cm{{upto}} WHERE i.{seat} = :me "
+    f"AND c.author <> :me" for seat, index in _SEATS]
+CHECK_COMMENTS_MENTIONING = [
+    "SELECT {cols} FROM mentions m INDEXED BY mentions_handle CROSS JOIN comments c "
+    "ON c.id = m.comment_id WHERE m.handle = :me AND m.comment_id > :cm{upto} AND c.author <> :me"]
+_EVENT_COLS = "e.id, e.issue_id, e.actor, e.action, e.old, e.new, e.at"
+_COMMENT_COLS = ("c.id, c.issue_id, c.kind, EXISTS (SELECT 1 FROM mentions q WHERE "
+                 "q.comment_id = c.id AND q.handle = :me) AS mentioned")
+
+
+def _union(parts: list[str], cols: str, upto: str) -> str:
+    return " UNION ".join(p.format(cols=cols, upto=upto) for p in parts)
+
+
+PENDING_SQL = "SELECT count(*) FROM ({} UNION {})".format(
+    _union(CHECK_EVENTS_MINE + CHECK_EVENTS_NAMING, "e.issue_id", ""),
+    _union(CHECK_COMMENTS_MINE + CHECK_COMMENTS_MENTIONING, "c.issue_id", ""))
+CHECK_EVENTS_SQL = _union(CHECK_EVENTS_MINE + CHECK_EVENTS_NAMING, _EVENT_COLS,
+                          " AND e.id <= :evh") + " ORDER BY 1"
+CHECK_COMMENTS_SQL = _union(CHECK_COMMENTS_MINE + CHECK_COMMENTS_MENTIONING, _COMMENT_COLS,
+                            " AND c.id <= :cmh") + " ORDER BY 1"
+# kinds that say why a write happened; the status move of the same write is not repeated
+_SEMANTIC = ("assigned", "unassigned", "rejected", "approved", "unblocked", "review_cap", "takeover")
+_ACTION_KINDS = ("assigned", "rejected", "unblocked", "review_cap", "takeover")
+_FIELDS = {"title": "title", "body": "body", "priority": "priority", "type": "type",
+           "topic": "topic", "due": "due", "labels": "labels", "parent": "parent",
+           "link": "links", "unlink": "links", "assignee": "assignee"}
+
+
+def _minutes_left(lease: str | None, now) -> int:
+    if not lease:
+        return 0
+    return max(0, int((timeutil.parse_iso(lease) - now).total_seconds() // 60))
 
 
 class TeamMixin:
@@ -322,6 +383,170 @@ class TeamMixin:
         counts["idle_agents"] = len(idle)
         out["counts"] = counts
         return out
+
+    # ---- check: what others changed in the agent's world -------------------------------
+
+    def check(self, *, peek: bool = False) -> dict:
+        """The actor's change feed since its last check (or join): issues newly assigned to it,
+        events by others on issues it is assignee or reviewer of, comments and files by others
+        on them, comments anywhere mentioning it; summarized per issue as kinds of change and
+        counts. {agent, since, holding, todo_for_you, changed (at most 10: action first, then
+        effective priority, then key), more, cursor}. Advances the cursor to the heads read at
+        the start (one small write) unless peek; `cursor` is the stored cursor after the call."""
+        me = self._need_actor()
+        now = timeutil.now()
+        now_ts = timeutil.iso(now)
+        with self._read() as conn:
+            agent = self._actor_row(conn)
+            heads = self._heads(conn)
+            cursor = conn.execute("SELECT last_event_id, last_comment_id, updated_at FROM cursors "
+                                  "WHERE agent = ? AND scope = 'check'", (me,)).fetchone()
+            if cursor is None:  # joined before the feed existed: it starts now
+                ev, cm, since = heads["event_id"], heads["comment_id"], now_ts
+            else:
+                ev, cm, since = cursor[0], cursor[1], cursor[2]
+            params = {"me": me, "ev": ev, "cm": cm, "evh": heads["event_id"],
+                      "cmh": heads["comment_id"]}
+            per = self._check_changes(conn, me, params)
+            ranked = self._check_ranked(conn, per)
+            holding = [{"key": self._key(r[0]), "lease_until": r[1],
+                        "lease_left_min": _minutes_left(r[1], now)} for r in conn.execute(
+                "SELECT id, lease_until FROM issues WHERE (assignee = ? AND status = 'in_progress') "
+                "OR (reviewer = ? AND status = 'in_review') ORDER BY lease_until, id", (me, me))]
+            mode = "review" if agent["role"] == "reviewer" else "work"
+            sql, args = self._candidates(conn, agent, mode, [], now_ts)
+            todo = conn.execute(f"SELECT count(*) {sql}", args).fetchone()[0]
+        position = {"event_id": ev, "comment_id": cm}
+        moved = cursor is None or (ev, cm) != (heads["event_id"], heads["comment_id"])
+        if not peek:
+            if moved:
+                self._advance_check(me, heads, now_ts)
+            position = dict(heads)
+        return {"agent": me, "since": since, "holding": holding, "todo_for_you": todo,
+                "changed": ranked[:CHECK_LIMIT], "more": max(0, len(ranked) - CHECK_LIMIT),
+                "cursor": position}
+
+    def pending_changes(self) -> int:
+        """How many issues `check` would list now (read-only: two indexed queries, no write).
+        0 without an actor or a check cursor. The CLI prints the dirty hint from it."""
+        me = self.actor
+        if not me:
+            return 0
+        row = self.conn.execute("SELECT last_event_id, last_comment_id FROM cursors "
+                                "WHERE agent = ? AND scope = 'check'", (me,)).fetchone()
+        if row is None:
+            return 0
+        return self.conn.execute(PENDING_SQL, {"me": me, "ev": row[0], "cm": row[1]}).fetchone()[0]
+
+    def _check_changes(self, conn, me: str, params: dict) -> dict:
+        """{issue_id: {changes, comments, questions, files}} from the feed's rows."""
+        per: dict[int, dict] = {}
+
+        def entry(issue_id: int) -> dict:
+            return per.setdefault(issue_id, {"changes": [], "comments": 0, "questions": 0,
+                                             "files": 0, "_status": None, "_fields": {}})
+
+        writes: dict[tuple, list] = {}
+        for row in conn.execute(CHECK_EVENTS_SQL, params):
+            writes.setdefault((row["issue_id"], row["actor"], row["at"]), []).append(row)
+        for (issue_id, _actor, _at), rows in writes.items():
+            item = entry(issue_id)
+            kinds = [self._check_kind(me, r) for r in rows]
+            semantic = any(k and k["kind"] in _SEMANTIC for k in kinds)
+            for row, kind in zip(rows, kinds):
+                if row["action"] == "attach":
+                    item["files"] += 1
+                elif kind is None or (kind["kind"] == "status" and semantic):
+                    continue
+                elif kind["kind"] == "status":
+                    if item["_status"] is None:
+                        item["_status"] = kind
+                        item["changes"].append(kind)
+                    else:
+                        item["_status"].update(new=kind["new"], by=kind["by"])
+                elif kind["kind"] == "field":
+                    seen = item["_fields"].get(kind["field"])
+                    if seen is None:
+                        item["_fields"][kind["field"]] = kind
+                        item["changes"].append(kind)
+                    else:
+                        seen["by"] = kind["by"]
+                        if "new" in kind:
+                            seen["new"] = kind["new"]
+                elif kind not in item["changes"]:
+                    item["changes"].append(kind)
+        for row in conn.execute(CHECK_COMMENTS_SQL, params):
+            item = entry(row["issue_id"])
+            item["comments"] += 1
+            if row["kind"] == "question" or row["mentioned"]:
+                item["questions"] += 1
+        for item in per.values():
+            del item["_status"], item["_fields"]
+        return per
+
+    def _check_kind(self, me: str, row) -> dict | None:
+        """One event as a change for `me`: {kind, by, ...}; None for attach (a count)."""
+        action, by, old, new = row["action"], row["actor"], row["old"], row["new"]
+        if action == "status":
+            return {"kind": "status", "old": old, "new": new, "by": by}
+        if action == "assignee" and new == me:
+            return {"kind": "assigned", "by": by}
+        if action == "assignee" and old == me or action == "release":
+            return {"kind": "unassigned", "by": by}
+        if action == "takeover":
+            return {"kind": "takeover", "by": new or by}
+        if action == "reject":
+            return {"kind": "rejected", "by": by}
+        if action == "approve":
+            return {"kind": "approved", "by": by}
+        if action == "unblocked":
+            return {"kind": "unblocked", "by_issue": (old or "").split(" ", 1)[0] or None, "by": by}
+        if action == "review_cap":
+            return {"kind": "review_cap", "by": by}
+        if action == "priority":
+            return {"kind": "field", "field": "priority", "old": old, "new": new, "by": by}
+        if action in _FIELDS:
+            return {"kind": "field", "field": _FIELDS[action], "by": by}
+        return None
+
+    def _check_ranked(self, conn, per: dict) -> list[dict]:
+        if not per:
+            return []
+        ids = list(per)
+        marks = ",".join("?" * len(ids))
+        own = {r[0]: r[1] for r in conn.execute(
+            f"SELECT id, priority FROM issues WHERE id IN ({marks})", ids)}
+        holds = {r[0]: (r[1], r[2]) for r in conn.execute(
+            f"SELECT k.src, min(b.priority), count(*) FROM links k JOIN issues b ON b.id = k.dst "
+            f"JOIN issues s ON s.id = k.src WHERE k.kind = 'blocks' AND b.status NOT IN "
+            f"('done', 'canceled') AND s.status NOT IN ('done', 'canceled') AND k.src IN ({marks}) "
+            f"GROUP BY k.src", ids)}
+        out = []
+        for issue_id, item in per.items():
+            priority = own[issue_id]
+            held, blocks_open = holds.get(issue_id, (4, 0))
+            effective = min(priority, held)
+            action = item["questions"] > 0 or any(c["kind"] in _ACTION_KINDS for c in item["changes"])
+            out.append(((not action, effective, issue_id), {
+                "key": self._key(issue_id), "priority": model.priority_name(priority),
+                "effective_priority": model.priority_name(effective), "blocks_open": blocks_open,
+                "action": action, "changes": item["changes"], "comments": item["comments"],
+                "questions": item["questions"], "files": item["files"]}))
+        out.sort(key=lambda pair: pair[0])
+        return [entry for _, entry in out]
+
+    def _advance_check(self, me: str, heads: dict, ts: str) -> None:
+        """Move the check cursor forward to heads (never back). One small write."""
+        from earmark import db
+
+        with db.write(self.conn) as conn:
+            conn.execute(
+                "INSERT INTO cursors(agent, scope, last_comment_id, last_event_id, updated_at) "
+                "VALUES (?, 'check', ?, ?, ?) ON CONFLICT(agent, scope) DO UPDATE SET "
+                "last_comment_id = max(cursors.last_comment_id, excluded.last_comment_id), "
+                "last_event_id = max(cursors.last_event_id, excluded.last_event_id), "
+                "updated_at = excluded.updated_at",
+                (me, heads["comment_id"], heads["event_id"], ts))
 
     def wait_check(self, mode: str) -> dict | None:
         """mode work|review|inbox|any. Read-only. Returns {reason, ...} when something is

@@ -385,22 +385,27 @@ class WorkflowMixin:
         """The first claimable issue at now_ts (tx.ts inside the claiming transaction, so the
         pick and the claim agree on what is stale)."""
         mode = "review" if (review if review is not None else agent["role"] == "reviewer") else "work"
+        sql, args = self._candidates(conn, agent, mode, narrow, now_ts)
+        if mode == "work":
+            order, args = WORK_ORDER, args + [agent["handle"]]
+        else:
+            order = REVIEW_ORDER
+        return mode, conn.execute(f"SELECT i.* {sql} ORDER BY {order} LIMIT 1", args).fetchone()
+
+    def _candidates(self, conn, agent, mode: str, narrow: list[str], now_ts: str) -> tuple[str, list]:
+        """FROM … WHERE … of what `next` may claim in `mode` (shared by next, wait and check)."""
         me = agent["handle"]
         where, params = self._scope_where(conn, agent, narrow)
         if mode == "work":
-            sql = (f"SELECT i.* FROM {views.ISSUE_FROM} WHERE ((i.status = 'todo' AND "
+            sql = (f"FROM {views.ISSUE_FROM} WHERE ((i.status = 'todo' AND "
                    f"(i.assignee IS NULL OR i.assignee = ? OR i.assignee IN {OFFLINE})) OR "
                    f"(i.status = 'in_progress' AND (i.assignee IS NULL OR (i.lease_until IS NOT NULL "
-                   f"AND i.lease_until < ?)))) AND {where} AND NOT EXISTS ({views.OPEN_BLOCKER}) "
-                   f"ORDER BY {WORK_ORDER} LIMIT 1")
-            args = [me, now_ts, *params, me]
-        else:
-            sql = (f"SELECT i.* FROM {views.ISSUE_FROM} WHERE i.status = 'in_review' AND "
-                   f"(i.reviewer IS NULL OR (i.lease_until IS NOT NULL AND i.lease_until < ?)) "
-                   f"AND (i.assignee IS NULL OR i.assignee <> ?) AND {where} "
-                   f"ORDER BY {REVIEW_ORDER} LIMIT 1")
-            args = [now_ts, me, *params]
-        return mode, conn.execute(sql, args).fetchone()
+                   f"AND i.lease_until < ?)))) AND {where} AND NOT EXISTS ({views.OPEN_BLOCKER})")
+            return sql, [me, now_ts, *params]
+        sql = (f"FROM {views.ISSUE_FROM} WHERE i.status = 'in_review' AND "
+               f"(i.reviewer IS NULL OR (i.lease_until IS NOT NULL AND i.lease_until < ?)) "
+               f"AND (i.assignee IS NULL OR i.assignee <> ?) AND {where}")
+        return sql, [now_ts, me, *params]
 
     def _scope_where(self, conn, agent, narrow: list[str]) -> tuple[str, list]:
         scope_sql, scope_params = subtree_sql(self._scope_paths(conn, agent["profile"]))

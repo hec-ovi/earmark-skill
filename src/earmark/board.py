@@ -19,7 +19,7 @@ The methods live in focused modules and are composed here:
 | comments.py | add_comment, edit_comment, list_comments, inbox |
 | attachments.py | attach, list_attachments, get_attachment, save_attachment, detach |
 | topics.py | topics, add_topic, edit_topic, move_topic, remove_topic |
-| team.py | profiles, get_profile, add_profile, edit_profile, remove_profile, join, leave, whoami, team, triage, wait_check |
+| team.py | profiles, get_profile, add_profile, edit_profile, remove_profile, join, leave, whoami, team, triage, wait_check, check, pending_changes |
 | admin.py | info, config, doctor, export, backup, data_version, heads |
 
 A Board holds one SQLite connection; use one Board per thread (or serialize calls).

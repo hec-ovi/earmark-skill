@@ -164,3 +164,5 @@ CREATE TABLE events (
   at       TEXT NOT NULL
 );
 CREATE INDEX events_issue ON events(issue_id, id);
+-- `check` and its dirty hint: assignment changes naming an agent after its cursor, without a scan
+CREATE INDEX events_action ON events(action, id);
