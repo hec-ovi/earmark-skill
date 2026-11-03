@@ -196,6 +196,7 @@ export function dismissToast(id) {
 export function handleError(e, context) {
   if (e && (e.status === 409 || e.code === 'conflict')) {
     toast({ kind: 'warn', title: 'Changed by someone else — reloaded', body: e.message, hint: e.hint });
+    if (e.details && e.details.key && e.details.version) applyIssue(e.details);
     refreshNow();
     return;
   }
@@ -496,6 +497,8 @@ export function connectLive() {
   if (source) source.close();
   clearTimeout(retryTimer);
   let wasOffline = state.live !== 'live';
+  // the server sends one `change` on connect; skip it right after boot, use it after a gap
+  let skipFirst = !state.everLive;
   try {
     source = new EventSource('/api/stream');
   } catch (e) {
@@ -504,14 +507,17 @@ export function connectLive() {
     return;
   }
   source.addEventListener('open', () => {
-    set({ live: 'live' });
+    set({ live: 'live', everLive: true });
     if (wasOffline && state.ready) {
       pendingFull = true;
       refreshDebounced();
     }
     wasOffline = false;
   });
-  source.addEventListener('change', () => refreshDebounced());
+  source.addEventListener('change', () => {
+    if (skipFirst) { skipFirst = false; return; }
+    refreshDebounced();
+  });
   source.addEventListener('error', () => {
     wasOffline = true;
     if (source.readyState === 2) {

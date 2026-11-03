@@ -98,7 +98,10 @@ function topicAction(action, node) {
 }
 
 async function archive(node, archived) {
-  if (await mutate('PATCH', `/topics/${node.id}`, { archived })) {
+  const ok = archived
+    ? await mutate('DELETE', `/topics/${node.id}?archive=1`)
+    : await mutate('PATCH', `/topics/${node.id}`, { archived: false });
+  if (ok) {
     toast({ kind: 'success', title: `${archived ? 'Archived' : 'Unarchived'} ${node.path}` });
     refreshNow();
   }
