@@ -188,7 +188,7 @@ class BodyTest(unittest.TestCase):
         self.assertLessEqual(len(self.body) // 4, BODY_MAX_TOKENS)
 
     def test_sections(self):
-        for heading in ("## Start", "## Read in levels", "## Worker loop", "## Reviewer loop",
+        for heading in ("## Start", "## Spend tokens only on what changed", "## Worker loop", "## Reviewer loop",
                         "## PM loop", "## Exit codes", "## Rules"):
             self.assertIn(heading, self.body)
 

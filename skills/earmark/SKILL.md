@@ -3,14 +3,15 @@ name: earmark
 description: >-
   Works a local issue board shared by a team of coding agents through the
   earmark CLI. Joins the board as a worker, reviewer or pm profile, claims the
-  next issue in scope, posts progress, hands work off to review, approves or
-  rejects handoffs, triages and assigns the backlog, and reads only new
-  comments. Use when the project has a .earmark/ board, when the user mentions
-  issues, tickets, a backlog, the board, a review queue or earmark, or says
-  things like "join as worker", "join as reviewer", "pick up the next issue",
-  "work the board", "check the review queue", "triage the backlog", "file an
-  issue for this" or "what are the agents working on". Same commands in Claude
-  Code, Codex, Grok, Antigravity and OpenCode.
+  next issue in scope, reads only what changed, hands work off to review,
+  files work only another specialist can do (images, audio, copy) as blocking
+  issues, approves or rejects handoffs, and triages and assigns the backlog.
+  Use when the project has a .earmark/ board, when the user mentions issues,
+  tickets, a backlog, the board, a review queue or earmark, or says things like
+  "join as worker", "join as reviewer", "pick up the next issue", "work the
+  board", "check the review queue", "triage the backlog", "file an issue for
+  this" or "what are the agents working on". Same commands in Claude Code,
+  Codex, Grok, Antigravity and OpenCode.
 license: MIT
 compatibility: >-
   Requires the earmark CLI (Python 3.10+, stdlib only) and a board created
@@ -24,69 +25,71 @@ allowed-tools: Bash(earmark:*)
 # earmark
 
 The project's agents share one issue board in `.earmark/`, reached only through the `earmark`
-CLI. Output is plain text sized for agents; errors print `error:` and a `hint:` to run next.
+CLI. Agents never message each other: work, dependencies and handoffs live on the board. Output
+is plain text sized for agents; errors print `error:` and a `hint:` to run next.
 
 ## Start
 
-1. Resolve the CLI once: `earmark` on PATH, else the `earmark` launcher beside this file. Neither:
-   ask the user to run `uv tool install git+https://github.com/hec-ovi/earmark-skill`. Never install it yourself.
-2. Join once: `earmark join <profile> --cli <claude-code|codex|grok|agy|opencode>`, with the profile
-   the user named (`earmark profiles`), else `worker`. Omit `--as` unless the user gave you a handle.
-   The briefing prints your handle, role prompt, scope, assigned issues and loop: follow them.
+1. `earmark info`. Command not found: use the `earmark` launcher beside this file. Neither: ask
+   the user to run `uv tool install git+https://github.com/hec-ovi/earmark-skill`. Never install it yourself.
+2. `earmark join <profile> --cli <claude-code|codex|grok|agy|opencode>` with the profile the user
+   named, else `worker`. The briefing prints your handle, role prompt, scope and loop: follow them.
    On `no board`, run `earmark init` only if the user asks for one.
-3. Pass `--as <handle>` on every later command. Each shell call starts clean, so an exported
-   `EARMARK_AS` is gone by the next one and writes fail without it. Lost it: `earmark team`.
+3. Pass `--as <handle>` on every later command; each shell call starts clean. Lost it: `earmark team`.
 
-## Read in levels
-
-Load the least that answers the question. Never list the whole board or scan the codebase for
-work: the issue you hold names its topic and files.
+## Spend tokens only on what changed
 
 | Need | Command |
 |---|---|
-| Where work lives | `earmark topics --depth 2` |
-| Issues in one area | `earmark ls -t <topic> --ready` |
-| One issue | `earmark show KEY` (fields, description, last comment id) |
-| Its discussion | `earmark comments KEY --new` (only unseen; or `--since ID`, `--last N`) |
-| New for you anywhere | `earmark inbox` |
-| Who is doing what | `earmark team` |
+| Start work: claim, the issue, its unseen comments | `earmark next` |
+| What changed for you, one line per issue | `earmark check` |
+| Just some fields or parts, several issues at once | `earmark show KEY [KEY…] -f status,title` · `-f comments --new` · `-f attachments` |
+| Files (images, audio, logs) | `earmark attachments KEY`, then open the printed paths with your own tools |
+| One area, rarely | `earmark topics PATH --depth 2` · `earmark ls -t PATH --ready` |
+
+Run `earmark check` when a command ends with `· N changes for you`, and between issues. Never list
+the whole board, never re-read what you already saw, and read only the code your issue names.
 
 ## Worker loop
 
-1. `earmark next` claims your best ready issue and prints it. Exit 4: go to 6.
-2. `earmark comments KEY --new`, then read only the code the issue needs. A rejected issue comes
-   back to you first; its `changes` comment is your checklist.
-3. Work that issue alone. At each milestone: `earmark comment KEY "<done, next>" --kind progress`.
-   Any write renews your lease (120 min by default); a silent claim goes stale and is taken.
-4. Need a decision: comment `--kind question` with `@<handle>` and go on with what you can.
-   Cannot go on at all: `earmark move KEY blocked -m "<blocked by what>"`, then go to 1.
-5. Done: `earmark review KEY -m "<what changed> · <files> · <how to verify>"`, then go to 1.
-6. Nothing to claim: `earmark next --review` claims someone else's handoff (never yours).
-   Review it as in reviewer steps 2 and 3, then go to 1.
-7. Still exit 4: `earmark inbox`; answer with `earmark comment KEY "..." --reply-to ID`.
-8. Nothing left: stop and report in three lines: done, in review, open or blocked. Only when told
-   to stay on duty: `earmark wait --timeout 9m` (allow 10 min for that call), then go to 1.
+1. `earmark next` claims your best ready issue and prints it with its unseen comments. Exit 4: go to 6.
+2. Work that issue alone. On long work, `earmark comment KEY "<done, next>" --kind progress` every
+   30 to 60 min: it renews your lease (120 min by default); a silent claim goes stale and is taken.
+3. Needs something only another specialist makes (an image, audio, copy):
+   `earmark need KEY "<what, format, where it goes>" -t <topic> [--assign <handle>]`. KEY is parked
+   and returns to your `next` when that issue is done; go to 1.
+   Needs a decision: `earmark comment KEY "<question>" --kind question` with `@<handle>`; go on with
+   what you can. Blocked by something outside the board: `earmark move KEY blocked -m "<what>"`.
+4. Done: deliverables first (`earmark attach KEY FILE…`), then
+   `earmark review KEY -m "<what changed> · <files> · <how to verify>" --next`: it hands off and
+   claims your next issue in the same call. Exit 4: go to 6.
+5. A resumed issue shows `blocked by: KEY2 (done)`: get its result with
+   `earmark show KEY2 -f comments,attachments --last 3`.
+6. `earmark next --review` claims someone else's handoff (never yours); review it as below.
+7. Still exit 4: `earmark check` and handle what needs you (questions, rejections).
+8. Nothing left: `earmark leave`, then report in three lines: done, in review, open or blocked.
+   Only when told to stay on duty: `earmark wait --timeout 9m` (allow 10 min), then go to 1.
 
 ## Reviewer loop
 
-1. `earmark next --review` claims the next handoff. Exit 4: worker steps 7 and 8.
-2. `earmark comments KEY --new` shows the `handoff` note. Verify exactly what it claims: run its
-   tests or steps and read every changed file.
-3. Pass: `earmark approve KEY -m "<what you checked>"`.
-   Fail: `earmark reject KEY -m "<each defect: file:line, expected, actual>"`; it returns to the
-   same worker. Never fix it yourself. Then go to 1.
+1. `earmark next --review` claims the next handoff and prints it with the `handoff` note. Exit 4:
+   worker steps 7 and 8.
+2. Verify exactly what the note claims: run its tests or steps, read every changed file.
+3. Pass: `earmark approve KEY -m "<what you checked>" --next`. Fail:
+   `earmark reject KEY -m "<each defect: file:line, expected, actual>" --next`; it returns to the
+   same worker. Never fix it yourself. The third reject parks it for the pm or owner.
 
 ## PM loop
 
-1. `earmark triage` lists untriaged backlog, unassigned todo, stale claims, review queue age,
-   blocked, overdue and idle agents. Work it top to bottom.
+1. `earmark triage`: untriaged backlog, unassigned todo, stale claims, review queue, blocked,
+   overdue, exhausted reviews, idle agents. Work it top to bottom.
 2. Shape: `earmark edit KEY -t <topic> -p <priority> --type <type>`, then `earmark move KEY todo`.
    Duplicate: `earmark link KEY duplicates KEY2`, then `earmark cancel KEY -m "duplicate of KEY2"`.
-3. Assign by scope: `earmark assign KEY <handle>` to the idle agent whose profile covers the topic.
-   Stale claim: ask the holder in a comment; no answer: `earmark move KEY todo -m "<why>"`, then assign.
-4. Order: `earmark rank KEY --top` or `--before KEY2`. Split: `earmark new "<title>" --parent KEY`.
-5. New work: `earmark new "<title>" -b "<goal · acceptance>" -t <topic> -p <priority>`.
-6. Triage clean: stop with a three-line summary, or wait as in worker step 8.
+3. Assign by scope: `earmark assign KEY <handle>` to the agent whose profile and CLI fit the work.
+   Stale claim: `earmark move KEY todo -m "<why>"`, then assign.
+4. Exhausted review: clarify the issue, then reassign, split (`earmark new "<title>" --parent KEY`)
+   or cancel it. Order the queue with `earmark rank KEY --top` or `--before KEY2`.
+5. Triage clean: `earmark leave` and a three-line summary, or wait as in worker step 8.
 
 ## Exit codes
 
@@ -101,11 +104,12 @@ work: the issue you hold names its topic and files.
 ## Rules
 
 - One claimed issue at a time. To drop one: `earmark release KEY -m "<why>"`.
-- Comments are short and concrete: what changed, paths, ids (`#1190`), `--reply-to ID`. No log dumps.
-- Out-of-scope finding: `earmark new "<title>" -b "<evidence>" -t <topic>`, then carry on; never fix it in passing.
+- Comments inform; they are not a chat. Answer only a question addressed to you, once. Never post
+  acknowledgements or thanks. Two exchanges without agreement: leave it to the pm or owner.
+- Comments are short and concrete: what changed, paths, ids (`#1190`). No log dumps; attach them.
+- Out-of-scope finding: `earmark new "<title>" -b "<evidence>" -t <topic>`; never fix it in passing.
 - Never edit the code, fields or status of an issue someone else holds; comment on it instead.
-- Touch the board only through `earmark`, never `.earmark/earmark.db` directly.
-- Ending the session: `earmark leave` returns your unfinished work to the queue.
+- Touch the board only through `earmark`, never `.earmark/` directly.
 
 References: [commands.md](references/commands.md) (every command, flag and output format) ·
 [workflow.md](references/workflow.md) (statuses, leases, `next` order, review flow, cursors).
