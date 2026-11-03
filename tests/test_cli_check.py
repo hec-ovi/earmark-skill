@@ -89,6 +89,19 @@ class CheckRenderTests(unittest.TestCase):
         self.assertEqual(R.check_parts(item("GAME-1", {"kind": "assigned", "by": "pm"}, priority="low")),
                          ["new for you (assigned by pm)", "low"])
 
+    def test_links_name_the_link(self):
+        def links(*pairs):
+            return {"kind": "field", "field": "links", "by": "pm", "links": [
+                {"change": change, "link": link, "key": key} for change, link, key in pairs]}
+        self.assertEqual(R.check_change(links(("added", "blocks", "GAME-5"))), "+blocks GAME-5")
+        self.assertEqual(R.check_change(links(("added", "blocked_by", "GAME-8"),
+                                              ("removed", "duplicated_by", "GAME-9"))),
+                         "+blocked by GAME-8, -duplicated by GAME-9")
+        self.assertEqual(R.check_change(links(("added", "blocks", "GAME-5"), ("removed", "relates", "GAME-2"),
+                                              ("added", "relates", "GAME-3"))),
+                         "+blocks GAME-5, -relates GAME-2, …")
+        self.assertEqual(R.check_change({"kind": "field", "field": "links", "by": "pm"}), "links changed")
+
     def test_new_for_you_leads(self):
         self.assertEqual(R.check_parts(item("GAME-1", {"kind": "field", "field": "links"},
                                             {"kind": "assigned", "by": "pm"}, priority="high", blocks_open=2)),
@@ -213,6 +226,19 @@ class RealCheckTests(CliBoardCase):
         self.ok("cancel", "3", "-m", "dropped", as_="hector")
         self.assertEqual(self.ok("wait", "--for", "changes", "--timeout", "1s", as_="pm-1"),
                          "wait: changes · 1 for you: earmark check\n")
+
+    def test_link_lines(self):
+        self.ok("join", "worker", as_="w1")
+        for title in ("Endpoint", "UI", "Schema"):
+            self.ok("new", title, as_="hector")
+        self.ok("claim", "1", as_="w1")
+        self.ok("link", "1", "blocks", "2", as_="hector")
+        self.assertEqual(self.ok("check", as_="w1").splitlines()[1:], ["GAME-1  +blocks GAME-2"])
+        self.ok("link", "3", "blocks", "1", as_="hector")
+        self.ok("unlink", "1", "blocks", "2", as_="hector")
+        self.ok("link", "1", "relates", "2", as_="hector")
+        self.assertEqual(self.ok("check", as_="w1").splitlines()[1:],
+                         ["GAME-1  +blocked by GAME-3, -blocks GAME-2, …"])
 
     def test_a_comment_next_or_show_new_printed_is_not_reported_again(self):
         self.ok("join", "worker", as_="w1")

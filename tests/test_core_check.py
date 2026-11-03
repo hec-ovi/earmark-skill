@@ -92,6 +92,26 @@ class Feed(BoardCase):
                          ([], 1, 0, 1, True))  # a note that @mentions it: not a question
         self.assertPending(feed)
 
+    def test_links_say_which_link_changed(self):
+        """Live-test repro: `SHOP-1  links changed` left backend-dev guessing what changed."""
+        b, ui, pm = self.board, self.ui, self.pm
+        mine = self.issue("endpoint")["key"]
+        b.assign(mine, "claude-ui")
+        five, eight, nine = (self.issue(t)["key"] for t in ("ui", "schema", "old endpoint"))
+        b.link(mine, "relates", nine)
+        ui.check()
+        pm.link(mine, "blocks", five)
+        pm.link(eight, "blocks", mine)
+        pm.link(mine, "duplicates", nine)
+        pm.unlink(mine, "relates", nine)
+        pm.link(mine, "blocks", five)  # already there: no event, no repeat
+        item = by_key(ui.check())[mine]
+        self.assertEqual(item["changes"], [{"kind": "field", "field": "links", "by": "grok-pm", "links": [
+            {"change": "added", "link": "blocks", "key": five},
+            {"change": "added", "link": "blocked_by", "key": eight},
+            {"change": "added", "link": "duplicates", "key": nine},
+            {"change": "removed", "link": "relates", "key": nine}]}])
+
     def test_a_question_is_for_whom_it_names(self):
         """Live-test repros: a note @mentioning the agent printed `question for you`, and pm-1's
         question to @owner on the artist's SHOP-8 reached the artist as a question for it."""
