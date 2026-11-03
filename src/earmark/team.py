@@ -600,6 +600,9 @@ class TeamMixin:
                         seen["by"] = kind["by"]
                         if "new" in kind:
                             seen["new"] = kind["new"]
+                        for link in kind.get("links", ()):
+                            if link not in seen["links"]:
+                                seen["links"].append(link)
                 elif kind not in item["changes"]:
                     item["changes"].append(kind)
         for row in conn.execute(CHECK_COMMENTS_SQL, params):
@@ -644,6 +647,10 @@ class TeamMixin:
             return {"kind": "review_cap", "by": by}
         if action == "priority":
             return {"kind": "field", "field": "priority", "old": old, "new": new, "by": by}
+        if action in ("link", "unlink"):  # old/new: '<kind> <KEY>' as seen from this issue
+            link, _, key = str((new if action == "link" else old) or "").partition(" ")
+            change = {"change": "added" if action == "link" else "removed", "link": link, "key": key}
+            return {"kind": "field", "field": "links", "by": by, "links": [change]}
         if action in _FIELDS:
             return {"kind": "field", "field": _FIELDS[action], "by": by}
         return None
