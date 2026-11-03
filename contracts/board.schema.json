@@ -353,11 +353,12 @@
 
     "NextEmpty": {
       "type": "object",
-      "description": "error.details of `next` when nothing is claimable (code empty, exit 4).",
-      "required": ["review_queue", "inbox", "stale", "scope", "mode"],
+      "description": "error.details of `next` when nothing is claimable (code empty, exit 4). review_queue: what next --review could claim (not the actor's own handoffs); changes: the actor's check feed (pending_changes); inbox: unread inbox comments; stale: lapsed claims in scope.",
+      "required": ["review_queue", "changes", "inbox", "stale", "scope", "mode"],
       "additionalProperties": false,
       "properties": {
         "review_queue": { "$ref": "#/$defs/Count" },
+        "changes": { "$ref": "#/$defs/Count" },
         "inbox": { "$ref": "#/$defs/Count" },
         "stale": { "$ref": "#/$defs/Count" },
         "scope": { "type": "array", "items": { "$ref": "#/$defs/TopicPath" } },

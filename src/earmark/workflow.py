@@ -356,7 +356,8 @@ class WorkflowMixin:
     def next(self, *, review: bool | None = None, topics: Iterable[str] = (),
              dry_run: bool = False) -> dict:
         """Pick and claim in one transaction. review None = role default. Raises Empty with
-        details {review_queue, inbox, stale, scope} when nothing is claimable."""
+        details {review_queue (reviews it could claim), changes (its check feed), inbox, stale,
+        scope, mode} when nothing is claimable."""
         self._need_actor()
         given = [topics] if isinstance(topics, str) else list(topics or ())
         narrow = [model.parse_topic_path(t) for t in given if t]
@@ -422,14 +423,16 @@ class WorkflowMixin:
         stale = conn.execute(f"SELECT count(*) FROM {views.ISSUE_FROM} WHERE {views.stale_sql()} "
                              f"AND {where}", [now_ts, *params]).fetchone()[0]
         inbox = self._inbox_count(conn, me)
+        changes = self.pending_changes()  # the check feed: what the dirty hint and check count
         scope = narrow or self._scope_paths(conn, agent["profile"])
         if mode == "work" and review_queue:
             hint = "earmark next --review"
-        elif inbox:
-            hint = "earmark inbox"
+        elif changes:
+            hint = "earmark check"
         else:
             hint = f"earmark wait --for {mode}"
-        what = "ready" if mode == "work" else "to review"
-        return Empty(f"nothing {what} in your scope", hint=hint,
-                     details={"review_queue": review_queue, "inbox": inbox, "stale": stale,
-                              "scope": scope, "mode": mode})
+        what = "ready for you" if mode == "work" else \
+            "to review for you (your own handoffs excluded)"
+        return Empty(f"nothing {what}", hint=hint,
+                     details={"review_queue": review_queue, "changes": changes, "inbox": inbox,
+                              "stale": stale, "scope": scope, "mode": mode})
