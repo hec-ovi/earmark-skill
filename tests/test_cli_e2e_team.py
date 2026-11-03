@@ -109,6 +109,10 @@ class TeamTests(CliBoardCase):
         self.assertIn("error:", self.fails(1, "profile", "add", "x", "--role", "worker", "--name", "X",
                                            as_="claude-ui"))
         self.ok("leave", as_="claude-ui")
+        err = self.fails(1, "profile", "rm", "ui-lead", as_="hector")  # offline agents still use it
+        self.assertIn("error: profile 'ui-lead' is used by 1 agent(s): claude-ui", err)
+        self.assertIn("hint: move them to another profile first: earmark join worker --as claude-ui", err)
+        self.ok("join", "worker", as_="claude-ui")
         self.assertEqual(self.ok("profile", "rm", "ui-lead", as_="hector"), "profile ui-lead removed\n")
         self.assertIn("error:", self.fails(2, "profile", "show", "ui-lead"))
 
