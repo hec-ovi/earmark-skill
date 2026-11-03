@@ -117,6 +117,16 @@ class IssueWriteTests(SampleBoard):
         self.assertIn("error: no issue GAME-2", self.fails(2, "show", "2"))
         self.assertIn("error:", self.fails(1, "delete", "1", "--yes", as_="claude-ui"))
 
+    def test_an_over_long_title_hints_at_the_body(self):
+        spec = "Eye color widget: " + "add a hue slider, a preset row and a reset button; " * 4
+        hint = 'error: title must be 1 to 200 characters\nhint: keep the title short; put details in -b "…"\n'
+        self.assertEqual(self.fails(1, "new", spec, as_="claude-ui"), hint)
+        key = self.ok("new", "Eye color widget", as_="claude-ui").strip()
+        self.assertEqual(self.fails(1, "need", key, spec, "-t", "ui-ux/video-calls", as_="claude-ui"), hint)
+        self.assertEqual(self.fails(1, "new", " ", as_="claude-ui"),
+                         "error: title must be 1 to 200 characters\n")  # nothing to shorten
+        self.assertEqual(self.ok("ls", "--count"), "1\n")
+
     def test_writes_need_identity(self):
         err = self.fails(1, "new", "x")
         self.assertTrue(err.startswith("error: "), err)
