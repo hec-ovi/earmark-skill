@@ -704,7 +704,7 @@ def render_whoami(res: dict, *, style: Style = PLAIN, day: str | None = None) ->
     prof = res.get("profile") if isinstance(res.get("profile"), dict) else {}
     handle = agent.get("handle") or "?"
     profile = prof.get("slug") or agent.get("profile")
-    role = prof.get("role") or agent.get("role") or agent.get("kind")
+    role = prof.get("role") or agent.get("role") or ("owner" if res.get("is_owner") else agent.get("kind"))
     scope = res.get("scope") if "scope" in res else prof.get("topics")
     lines = [SEP.join([f"handle: {style.bold(str(handle))}", f"profile: {dash(profile)}",
                        f"role: {dash(role)}", f"state: {dash(agent.get('presence'))}"]),

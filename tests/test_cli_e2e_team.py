@@ -83,6 +83,8 @@ class TeamTests(CliBoardCase):
         self.assertEqual(who[2], "your issues (1):")
         self.assertTrue(who[4].startswith("GAME-1  in_progress"), who)
         self.assertIn("hint:", self.fails(1, "whoami"))
+        self.assertEqual(self.ok("whoami", as_="hector").splitlines()[0],
+                         "handle: hector · profile: - · role: owner · state: active")
         self.assertEqual(self.ok("leave", as_="claude-ui"), "claude-ui offline · returned: GAME-1\n")
         self.assertEqual(self.ok("show", "1", "-f", "status,assignee"), "status: todo\nassignee: -\n")
         self.assertIn("claude-ui   worker    worker    claude-code  0s    offline  -", self.ok("team"))
