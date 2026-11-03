@@ -129,6 +129,22 @@ Inside one `BEGIN IMMEDIATE`, select the first candidate and claim it.
 - Nothing found: exit code 4 (`empty`) with counts that tell the agent where to look next
   (review queue size, inbox count, stale claims).
 
+### Needs: work only another agent can do
+
+Agents never message each other to get work done. A dependency is an issue.
+
+- `need KEY TITLE -t TOPIC …` runs in one write transaction: it creates the new issue in
+  TOPIC (reporter = actor, priority defaults to KEY's), links `NEW blocks KEY`, and when the
+  actor holds KEY moves KEY to `blocked`, keeping the assignee and clearing the lease. It posts
+  a `note` on KEY naming NEW. `next` hands NEW to an agent whose scope covers TOPIC.
+- **Auto-unblock.** When an issue moves to `done` or `canceled`, every issue it blocks that is
+  `blocked` and has no other open blocker moves to `todo` with its assignee kept (event
+  `unblocked`, actor = whoever resolved the blocker). The assignee's `next` returns it first.
+- `show` prints blockers with their status (`blocked by: GAME-77 (done)`), so the resumed
+  agent reads the result where it was delivered: the blocker's comments and attachments.
+- A worker without a blocker issue (waiting on a person, an outside service) still uses
+  `move KEY blocked -m …`; that one is released by hand.
+
 ## Comments and cursors
 
 - Comment ids are global and monotonic, so one number is a complete cursor.
