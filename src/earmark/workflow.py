@@ -112,21 +112,25 @@ class WorkflowMixin:
         return who if found is None or not found[0] else None
 
     def _check_move(self, tx: Tx, row, target: str) -> None:
-        if tx.privileged:
+        """The owner overrides everything. A pm skips the transition table and the review gate,
+        but like anyone else cannot move work someone else holds under a live lease, nor approve
+        or reject its own work."""
+        if tx.is_owner:
             return
         src, key = row["status"], self._key(row["id"])
-        if target not in model.TRANSITIONS[src]:
+        pm = tx.role == "pm"
+        if not pm and target not in model.TRANSITIONS[src]:
             allowed = ", ".join(model.TRANSITIONS[src])
             raise InvalidRequest(f"cannot move {key} from {src} to {target}; allowed: {allowed}",
                                  hint=f"earmark show {key}")
-        if src == "in_progress" and target == "done" and tx.require_review:
+        if not pm and src == "in_progress" and target == "done" and tx.require_review:
             raise Forbidden("this board requires review before done",
                             hint=f"earmark review {key} -m \"<what changed> · <how to verify>\"")
         if src == "in_review" and target in ("done", "todo") and row["assignee"] == tx.actor:
             raise Forbidden("you cannot approve or reject your own work",
                             hint="earmark next --review picks someone else's handoff")
         self._check_holder(tx, row)
-        if target == "in_progress" and src != "in_review":
+        if not pm and target == "in_progress" and src != "in_review":
             self._check_assigned(tx, row)
 
     def _check_holder(self, tx: Tx, row) -> None:
@@ -283,7 +287,7 @@ class WorkflowMixin:
         """Claim the holder seat (assignee of in_progress, reviewer of in_review): renew when
         it is yours, take it when empty or stale, conflict when someone holds a live lease."""
         key, current, lease = self._key(row["id"]), row[column], row["lease_until"]
-        if column == "reviewer" and row["assignee"] == tx.actor and not tx.privileged:
+        if column == "reviewer" and row["assignee"] == tx.actor and not tx.is_owner:
             raise Forbidden("you cannot review your own work",
                             hint="earmark next --review picks someone else's handoff")
         if current == tx.actor:
@@ -308,7 +312,7 @@ class WorkflowMixin:
                 raise InvalidRequest(f"{ikey} is {src}; only claimed work can be released")
             if src == "in_review" and row["reviewer"] is None:
                 raise InvalidRequest(f"nobody holds the review of {ikey}")
-            if not tx.privileged:
+            if not tx.is_owner:  # a pm, like anyone, cannot release a live claim of another
                 self._check_holder(tx, row)
             if note and note.strip():
                 self._insert_comment(tx, row["id"], note.strip(), "note")

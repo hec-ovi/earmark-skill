@@ -60,6 +60,49 @@ class Transitions(BoardCase):
         with self.assertRaises(InvalidRequest):
             self.board.move(key, "finished")
 
+    def test_pm_respects_live_leases_and_its_own_work(self):
+        pm, w1, r1 = self.agent("pm-1", "pm"), self.agent("w1"), self.agent("r1", "reviewer")
+        held = self.issue("held")["key"]
+        w1.claim(held)
+        for attempt in (lambda: pm.move(held, "todo"), lambda: pm.move(held, "blocked"),
+                        lambda: pm.done(held), lambda: pm.cancel(held, note="x"),
+                        lambda: pm.claim(held), lambda: pm.release(held)):
+            with self.assertRaises(Conflict) as ctx:
+                attempt()
+            self.assertEqual(ctx.exception.details["holder"], "w1")
+        self.assertEqual(self.board.get_issue(held)["assignee"], "w1")
+        w1.submit_review(held, note="ready")
+        r1.claim(held)
+        with self.assertRaises(Conflict):
+            pm.approve(held)
+        self.clock.advance(minutes=121)  # the reviewer's lease runs out: a pm may step in
+        self.assertEqual(pm.approve(held)["status"], "done")
+        own = self.issue("pm's own")["key"]
+        pm.claim(own)
+        self.assertEqual(pm.done(own)["status"], "done")  # a pm skips the review gate
+        mine = self.issue("pm in review")["key"]
+        pm.claim(mine)
+        pm.submit_review(mine, note="please check")
+        for attempt in (lambda: pm.approve(mine), lambda: pm.reject(mine, note="no"),
+                        lambda: pm.move(mine, "done"), lambda: pm.claim(mine)):
+            with self.assertRaises(Forbidden):
+                attempt()
+        self.assertEqual(r1.approve(mine)["status"], "done")
+        forced = self.issue("forced", status="backlog")["key"]
+        self.assertEqual(pm.move(forced, "in_review")["status"], "in_review")
+
+    def test_owner_overrides_live_leases(self):
+        w1 = self.agent("w1")
+        key = self.issue("x")["key"]
+        w1.claim(key)
+        self.assertEqual(self.board.release(key)["assignee"], None)
+        w1.claim(key)
+        self.assertEqual(self.board.move(key, "blocked")["status"], "blocked")
+        own = self.issue("owner's")["key"]
+        self.board.claim(own)
+        self.board.submit_review(own, note="mine")
+        self.assertEqual(self.board.approve(own)["status"], "done")
+
     def test_require_review_gate(self):
         worker = self.agent("w1")
         key = self.issue("x")["key"]
