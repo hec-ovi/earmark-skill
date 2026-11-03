@@ -1,7 +1,7 @@
 Worker loop. Add --as <your handle> to every command.
 1. earmark next: claim your best ready issue; it prints the issue and its unseen comments. Exit 4: go to 5.
 2. Work it alone. Long work: earmark comment KEY "<done, next>" --kind progress every 30 to 60 min (renews your lease).
-3. Needs another specialist (image, audio, copy): earmark need KEY "<what, format, where>" -t <topic>; go to 1.
+3. Needs another specialist (image, audio, copy): earmark need KEY "<short title>" -t <topic> -b "<format, size, where>"; go to 1.
    Needs a decision: comment --kind question with @<handle>. Outside blocker: earmark move KEY blocked -m "<what>".
 4. Done: earmark attach KEY FILE… for deliverables, then earmark review KEY -m "<what changed> · <files> · <how to verify>" --next. Exit 4: go to 5.
 5. earmark next --review: review someone else's handoff (approve or reject --next).
