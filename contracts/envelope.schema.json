@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hec-ovi/earmark-skill/contracts/envelope.schema.json",
+  "title": "Envelope",
+  "description": "Wrapper for every `earmark --json` output and every HTTP API response. Additive fields are MINOR (consumers ignore unknown fields); removal, rename, type change or meaning change is MAJOR.",
+  "x-contract-version": "1.0.0",
+  "type": "object",
+  "required": ["contract_version", "ok", "data", "error", "meta"],
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "ok": {
+      "type": "boolean",
+      "description": "True on success; on false, data is null and error is set."
+    },
+    "data": {
+      "description": "Command payload (object, array or null); shapes in board.schema.json."
+    },
+    "error": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/Error" }] },
+    "meta": { "$ref": "#/$defs/Meta" }
+  },
+  "$defs": {
+    "Error": {
+      "type": "object",
+      "required": ["code", "message", "retriable"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "invalid_request",
+            "not_found",
+            "conflict",
+            "empty",
+            "busy",
+            "forbidden",
+            "identity_required",
+            "not_joined",
+            "no_board",
+            "internal_error"
+          ],
+          "description": "Closed set from src/earmark/errors.py. Exit codes: invalid_request, forbidden, identity_required, not_joined, no_board, internal_error → 1; not_found → 2; conflict → 3; empty → 4; busy → 5."
+        },
+        "message": { "type": "string" },
+        "retriable": {
+          "type": "boolean",
+          "description": "True when the identical call may succeed later (busy)."
+        },
+        "hint": {
+          "type": ["string", "null"],
+          "description": "The next command to try, when there is one."
+        },
+        "details": {
+          "description": "Code-specific context, e.g. the current issue on conflict."
+        }
+      }
+    },
+    "Meta": {
+      "type": "object",
+      "required": ["command"],
+      "properties": {
+        "command": { "type": "string" },
+        "board": { "type": ["string", "null"], "description": "Board prefix." },
+        "actor": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
