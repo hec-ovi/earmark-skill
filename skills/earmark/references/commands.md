@@ -52,7 +52,7 @@ status: in_progress   priority: high   type: bug   version: 7
 topic: ui-ux/character-menu/face-layer/eye-color
 assignee: claude-ui (lease until 2026-11-03T16:05:00Z)   reviewer: -   reporter: hector
 labels: regression   due: 2026-11-07
-parent: GAME-30   sub: GAME-43, GAME-44   blocks: GAME-51   blocked by: -
+parent: GAME-30   sub: GAME-43, GAME-44   blocks: GAME-51   blocked by: GAME-77 (done)
 created: 2026-11-03T10:02:11Z   updated: 2026-11-03T14:05:09Z
 comments: 12, last #1199, 3 new for you
 
@@ -91,12 +91,20 @@ Covers issues you are assignee, reviewer or reporter of, have commented on, or a
 | `earmark next [--review] [--topic PATH] [--dry-run]` | pick and claim the best issue in your scope; exit 4 when none |
 | `earmark claim KEY` | claim one issue (or renew your lease on it) |
 | `earmark release KEY [-m NOTE]` | give it back: unassigned todo |
+| `earmark need KEY TITLE -t PATH [-b BODY] [-p PRIO] [--type T] [-l LABEL]… [--attach FILE]…` | work only another specialist can do (an image, audio, copy): files it in PATH as a blocker of KEY and parks KEY as blocked, still yours; KEY returns to your `next` when it is done |
 | `earmark review KEY -m NOTE` | hand off to review; NOTE posted as `handoff` (what changed, how to verify) |
 | `earmark approve KEY [-m NOTE]` | reviewer: in_review → done, `approval` comment |
 | `earmark reject KEY -m NOTE` | reviewer: in_review → todo for the same assignee, `changes` comment |
 | `earmark done KEY [-m NOTE]` | close directly (owner, pm, or boards without required review) |
 | `earmark move KEY STATUS [-m NOTE]` | any allowed transition (see [workflow.md](workflow.md)) |
 | `earmark reopen KEY -m NOTE` · `earmark cancel KEY -m NOTE` | done/canceled → todo · → canceled |
+
+`need` prints both sides:
+
+```
+GAME-77 created in artwork/icons · blocks GAME-42
+GAME-42 blocked, still yours · returns to your next when GAME-77 is done
+```
 
 `next` prints the claimed issue in `show` format. With nothing to claim (exit 4):
 `next: nothing ready in your scope · review queue: 3 · inbox: 2 new · stale: 0`.
