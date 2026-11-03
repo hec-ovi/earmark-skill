@@ -7,7 +7,8 @@ CREATE TABLE meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
--- keys: schema_version, prefix, owner, created_at, require_review ('1'|'0'), lease_minutes ('120')
+-- keys: schema_version, prefix, owner, created_at, require_review ('1'|'0'), lease_minutes ('120'),
+--       max_attachment_mb ('50')
 
 CREATE TABLE topics (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,6 +124,24 @@ CREATE TABLE mentions (
   PRIMARY KEY (comment_id, handle)
 );
 CREATE INDEX mentions_handle ON mentions(handle, comment_id);
+
+-- Files attached to an issue or one of its comments. Bytes live beside the database in
+-- .earmark/files/<sha[0:2]>/<sha256><.ext>, written once and shared by identical uploads.
+CREATE TABLE attachments (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  issue_id   INTEGER NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  comment_id INTEGER REFERENCES comments(id) ON DELETE SET NULL,
+  name       TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 255),   -- original file name
+  mime       TEXT NOT NULL,
+  size       INTEGER NOT NULL CHECK (size >= 0),
+  sha256     TEXT NOT NULL CHECK (length(sha256) = 64),
+  ext        TEXT NOT NULL DEFAULT '',                              -- '.png', '' when unknown
+  author     TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX attachments_issue   ON attachments(issue_id, id);
+CREATE INDEX attachments_comment ON attachments(comment_id);
+CREATE INDEX attachments_sha     ON attachments(sha256);
 
 -- Read cursors: scope 'inbox' or 'issue:<id>'. Written only by commands that advance them.
 CREATE TABLE cursors (
