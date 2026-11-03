@@ -112,11 +112,13 @@ class BoardBase:
                          hint=f"earmark join <profile> --as {actor}  (see: earmark profiles)")
 
     def _refresh_seen(self, conn, actor: str, last_seen: str, now: datetime) -> None:
+        """Conditional write: only when last_seen is older than the throttle window."""
         cutoff = timeutil.iso(now - timedelta(seconds=SEEN_THROTTLE_S))
         if last_seen < cutoff:
             conn.execute("UPDATE agents SET last_seen = ? WHERE handle = ? AND last_seen < ?",
                          (timeutil.iso(now), actor, cutoff))
-        self._seen_checked = timeutil.iso(now)
+            last_seen = timeutil.iso(now)
+        self._seen_checked = last_seen
 
     def _actor_row(self, conn, handle: str | None = None):
         handle = handle or self._need_actor()

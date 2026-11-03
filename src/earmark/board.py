@@ -90,17 +90,18 @@ class Board(IssuesMixin, WorkflowMixin, CommentsMixin, TopicsMixin, TeamMixin, A
         if not self.actor:
             return
         now = timeutil.now()
-        if self._seen_checked and timeutil.parse_iso(self._seen_checked) > now - _seen_window():
+        cutoff = timeutil.iso(now - _seen_window())
+        if self._seen_checked and self._seen_checked >= cutoff:  # last_seen known to be fresh
             return
         row = self.conn.execute("SELECT last_seen FROM agents WHERE handle = ?",
                                 (self.actor,)).fetchone()
         if row is None:
             return
-        if timeutil.parse_iso(row[0]) <= now - _seen_window():
+        if row[0] < cutoff:
             with _db.write(self.conn) as conn:
                 self._refresh_seen(conn, self.actor, row[0], now)
         else:
-            self._seen_checked = timeutil.iso(now)
+            self._seen_checked = row[0]
 
 
 def _seen_window():
