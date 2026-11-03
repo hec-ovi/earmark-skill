@@ -35,7 +35,9 @@ class WindowsPipeTests(unittest.TestCase):
     def run_cli(cls, *argv, stdin: bytes = b"", env: dict | None = None):
         proc = subprocess.run([sys.executable, LAUNCHER, *argv], cwd=cls.tmp, input=stdin,
                               capture_output=True, env=clean_env(**(env or {})), timeout=60)
-        return proc.returncode, proc.stdout.decode("utf-8"), proc.stderr.decode("utf-8")
+        # Text-mode stdout on Windows ends lines with \r\n; the encoding is what is under test.
+        decode = lambda raw: raw.decode("utf-8").replace("\r\n", "\n")
+        return proc.returncode, decode(proc.stdout), decode(proc.stderr)
 
     def test_json_and_text_keep_non_ascii(self):
         code, out, _ = self.run_cli("show", "T-1", "-f", "title", "--json", "--as", "w1", env=WINDOWS_PIPE)
