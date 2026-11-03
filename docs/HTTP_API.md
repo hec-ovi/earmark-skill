@@ -5,10 +5,10 @@ envelope from `contracts/envelope.schema.json`: `{contract_version, ok, data, er
 The HTTP status follows `src/earmark/errors.py`: `invalid_request`, `identity_required` and
 `not_joined` 400, `forbidden` 403, `not_found`, `no_board` and `empty` 404, `conflict` 409,
 `busy` 503, `internal_error` 500. A known path with the wrong method answers 405 with an
-`Allow` header; a body over 1 MB answers 413.
+`Allow` header; a JSON body over 1 MB answers 413 (an upload: over `max_attachment_mb`).
 
 Requests act as the board owner. Every non-GET request with a body must send `X-Earmark: 1`
-and `Content-Type: application/json`. The server rejects a `Host` other than
+and `Content-Type: application/json` (an upload sends the file's type). The server rejects a `Host` other than
 `127.0.0.1:<port>` or `localhost:<port>`, refuses writes whose `Origin` is another site, and
 sends no CORS headers.
 
@@ -62,7 +62,7 @@ comment ones included); `Comment` adds `attachments: [Attachment]`.
 
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
-| GET | `/api/board` | | `{prefix, owner, settings: {require_review, lease_minutes}, counts: {by_status, open, total}, enums: {statuses, priorities, types, comment_kinds, roles, link_kinds}, version}` |
+| GET | `/api/board` | | `{prefix, owner, settings: {require_review, lease_minutes, max_attachment_mb}, counts: {by_status, open, total}, enums: {statuses, priorities, types, comment_kinds, roles, link_kinds}, version}` |
 | GET | `/api/topics` | `?all=1` includes archived | `[Topic]` roots with children |
 | POST | `/api/topics` | `{path, name?, icon?, description?}` | `Topic` |
 | PATCH | `/api/topics/{id}` | `{name?, icon?, description?, path?, position?, archived?}` | `Topic` |

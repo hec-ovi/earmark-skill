@@ -1,7 +1,9 @@
 """JSON API routes (docs/HTTP_API.md). Each handler maps one request onto board methods.
 
 Handlers receive a Request (board, path params, query, decoded JSON body) and return the
-`data` part of the envelope; errors are earmark.errors exceptions. No SQL lives here.
+`data` part of the envelope, or a RawFile the server streams as the response body; errors are
+earmark.errors exceptions. Upload routes get the request body as a stream (Request.stream),
+never read whole. No SQL lives here.
 """
 
 from __future__ import annotations
@@ -41,13 +43,16 @@ FALSE = {"0", "false", "no", "off", ""}
 
 
 class Request:
-    __slots__ = ("board", "params", "query", "body")
+    __slots__ = ("board", "params", "query", "body", "stream", "headers")
 
-    def __init__(self, board: Any, params: dict[str, str], query: dict[str, list[str]], body: Any):
+    def __init__(self, board: Any, params: dict[str, str], query: dict[str, list[str]], body: Any,
+                 stream: Any = None, headers: Any = None):
         self.board = board
         self.params = params
         self.query = query
         self.body = body
+        self.stream = stream      # upload routes: the request body, bounded by Content-Length
+        self.headers = headers or {}
 
     # ---- query helpers ------------------------------------------------------------------
     def has(self, name: str) -> bool:
@@ -380,6 +385,51 @@ def edit_comment(r: Request) -> dict:
     return r.board.edit_comment(int(r.params["id"]), b["body"])
 
 
+# ---- attachments ---------------------------------------------------------------------------
+class RawFile:
+    """An attachment's bytes as the response: the server adds range, caching and safety headers."""
+
+    __slots__ = ("path", "mime", "name", "size", "sha256")
+
+    def __init__(self, attachment: dict):
+        self.path = attachment["path"]
+        self.mime = attachment["mime"]
+        self.name = attachment["name"]
+        self.size = attachment["size"]
+        self.sha256 = attachment["sha256"]
+
+
+def list_attachments(r: Request) -> list:
+    return r.board.list_attachments(r.params["key"])
+
+
+def upload_attachment(r: Request) -> dict:
+    name = r.q("name")
+    if name is None or not name.strip():
+        raise InvalidRequest("missing query parameter: name", hint="POST .../attachments?name=shot.png")
+    kw: dict[str, Any] = {}
+    comment = r.q("comment")
+    if comment is not None and comment.strip():
+        kw["comment"] = comment.strip()
+    hint = r.headers.get("Content-Type")
+    items = r.board.attach(r.params["key"], [(name, r.stream, hint)], **kw)
+    return items[0]
+
+
+def get_attachment(r: Request) -> dict:
+    return r.board.get_attachment(int(r.params["id"]))
+
+
+def raw_attachment(r: Request) -> RawFile:
+    return RawFile(r.board.get_attachment(int(r.params["id"])))
+
+
+def detach(r: Request) -> dict:
+    result = r.board.detach(int(r.params["id"]))
+    deleted = result.get("deleted") if isinstance(result, dict) else None
+    return {"deleted": deleted if deleted is not None else int(r.params["id"])}
+
+
 # ---- team --------------------------------------------------------------------------------
 def team(r: Request) -> dict:
     return r.board.team()
@@ -419,14 +469,15 @@ def remove_profile(r: Request) -> dict:
 class Route:
     """`{name}` matches one path segment; `{name:int}` matches digits only."""
 
-    __slots__ = ("method", "pattern", "regex", "handler", "conflict")
+    __slots__ = ("method", "pattern", "regex", "handler", "conflict", "stream")
 
     def __init__(self, method: str, pattern: str, handler: Callable[[Request], Any],
-                 conflict: str | None = None):
+                 conflict: str | None = None, stream: bool = False):
         self.method = method
         self.pattern = re.sub(r"\{(\w+):\w+\}", r"{\1}", pattern)
         self.handler = handler
         self.conflict = conflict  # 'issue' or 'profile': 409 details carry the current object
+        self.stream = stream      # the body is raw bytes for the handler, not JSON
 
         def group(m: re.Match) -> str:
             body = "[0-9]+" if m.group(2) == "int" else "[^/]+"
@@ -458,7 +509,12 @@ ROUTES = [
     Route("GET", "/api/issues/{key}/comments", list_comments),
     Route("POST", "/api/issues/{key}/comments", add_comment, conflict="issue"),
     Route("GET", "/api/issues/{key}/events", issue_events),
+    Route("GET", "/api/issues/{key}/attachments", list_attachments),
+    Route("POST", "/api/issues/{key}/attachments", upload_attachment, stream=True),
     Route("PATCH", "/api/comments/{id:int}", edit_comment),
+    Route("GET", "/api/attachments/{id:int}", get_attachment),
+    Route("DELETE", "/api/attachments/{id:int}", detach),
+    Route("GET", "/api/attachments/{id:int}/raw", raw_attachment),
     Route("GET", "/api/activity", activity),
     Route("GET", "/api/team", team),
     Route("GET", "/api/profiles", list_profiles),

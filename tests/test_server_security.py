@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import unittest
 
@@ -89,10 +90,19 @@ class WriteGuardTests(FakeServerCase):
         self.assertEnvelopeOk(resp)
 
     def test_oversize_body(self):
-        big = b'{"title": "' + b"x" * (1024 * 1024) + b'"}'
-        resp = self.call("POST", "/api/issues", raw=big)
-        self.assertEnvelopeError(resp, 413, "invalid_request")
-        self.assertEqual(resp.headers["Connection"], "close")
+        """The server answers 413 without reading the body, then reads and drops the rest
+        before it closes, so a client still sending gets the answer, not a reset. The client
+        here is a raw socket: if sending ever fails (BrokenPipe/ConnectionReset), the test
+        still requires that the bytes received so far are the complete 413 answer."""
+        big = b'{"title": "' + b"x" * (4 * 1024 * 1024) + b'"}'
+        for _ in range(3):
+            head = (f"POST /api/issues HTTP/1.1\r\nHost: {self.h.host}\r\nX-Earmark: 1\r\n"
+                    f"Content-Type: application/json\r\nContent-Length: {len(big)}\r\n\r\n").encode()
+            status, headers, body = raw_exchange(self.h.port, head + big)
+            self.assertEqual(status, 413, body)
+            self.assertEqual(headers["connection"], "close")
+            env = json.loads(body)
+            self.assertEqual((env["ok"], env["error"]["code"]), (False, "invalid_request"))
         self.assertNotIn("create_issue", self.store.names())
 
     def test_body_at_limit_is_read(self):
@@ -148,9 +158,10 @@ class HeaderTests(FakeServerCase):
         self.assertIsNone(self.call("GET", "/api/board").headers["Content-Security-Policy"])
 
     def test_exact_csp(self):
-        self.assertEqual(app.CSP, "default-src 'self'; img-src 'self' data:; style-src 'self'; "
-                                  "script-src 'self'; connect-src 'self'; font-src 'self'; "
-                                  "frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+        self.assertEqual(app.CSP, "default-src 'self'; img-src 'self' data: blob:; media-src 'self'; "
+                                  "style-src 'self'; script-src 'self'; connect-src 'self'; "
+                                  "font-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
+                                  "form-action 'none'")
 
     def test_malformed_request_line_gets_json(self):
         sock = socket.create_connection(("127.0.0.1", self.h.port), timeout=5)
@@ -165,6 +176,34 @@ class HeaderTests(FakeServerCase):
         self.assertIn(b"501", head.split(b"\r\n")[0])
         self.assertIn(b'"ok":false', body)
         self.assertNotIn(b"<html", body.lower())
+
+
+def raw_exchange(port: int, request: bytes, timeout: float = 10.0) -> tuple[int, dict, bytes]:
+    """Send request on a raw socket and read the response until the server closes. A failed
+    send is tolerated; the answer must then already be complete in what was received."""
+    sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+    data = b""
+    try:
+        try:
+            sock.sendall(request)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        try:
+            while chunk := sock.recv(65536):
+                data += chunk
+        except ConnectionResetError:
+            pass  # acceptable only after a complete answer: checked below
+    finally:
+        sock.close()
+    head, sep, body = data.partition(b"\r\n\r\n")
+    if not sep:
+        raise AssertionError(f"no complete response: {data[:200]!r}")
+    lines = head.decode("latin-1").split("\r\n")
+    headers = {k.strip().lower(): v.strip() for k, v in (ln.split(":", 1) for ln in lines[1:] if ":" in ln)}
+    length = int(headers.get("content-length", "0"))
+    if len(body) < length:
+        raise AssertionError(f"response body cut short: {len(body)} of {length} bytes")
+    return int(lines[0].split()[1]), headers, body[:length]
 
 
 if __name__ == "__main__":

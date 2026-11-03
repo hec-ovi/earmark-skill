@@ -10,6 +10,7 @@ from __future__ import annotations
 import errno
 import ipaddress
 import json
+import os
 import select
 import signal
 import socket
@@ -21,7 +22,7 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 import earmark
 from earmark.errors import Busy, EarmarkError, Forbidden, InternalError, InvalidRequest, NotFound
@@ -36,9 +37,16 @@ MAX_STREAMS = 32
 PING_SECONDS = 25.0
 POLL_SECONDS = 1.0
 
-CSP = ("default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
-       "connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
-       "form-action 'none'")
+DRAIN_SECONDS = 5.0     # reading an unread request body after an early answer, at most
+DRAIN_READ_TIMEOUT = 1.0
+FILE_CHUNK = 64 * 1024
+
+CSP = ("default-src 'self'; img-src 'self' data: blob:; media-src 'self'; style-src 'self'; "
+       "script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; "
+       "base-uri 'none'; form-action 'none'")
+# Attachment bytes: never scripts, never the page origin's document.
+FILE_CSP = "sandbox; default-src 'none'"
+FILE_CACHE = "private, max-age=31536000, immutable"
 
 BoardFactory = Callable[[str | None], Any]
 
@@ -81,6 +89,7 @@ class Handler(BaseHTTPRequestHandler):
     server: "EarmarkServer"
     _head = False
     _body_pending = False
+    _body_left: int | None = None
     _responded = False
     _command_name = "http"
 
@@ -122,6 +131,7 @@ class Handler(BaseHTTPRequestHandler):
         length = self.headers.get("Content-Length")
         self._body_pending = bool(self.headers.get("Transfer-Encoding")) or (
             length is not None and length.strip() not in ("", "0"))
+        self._body_left = _length(length) if not self.headers.get("Transfer-Encoding") else None
         try:
             split = urlsplit(self.path)
             path = split.path or "/"
@@ -141,6 +151,29 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:  # a bug: report it as internal_error, log it
             self._log_internal(exc)
             self._fail(InternalError(f"internal error: {type(exc).__name__}"))
+        if self._body_pending and self._responded:
+            self._drain_body()
+
+    def _drain_body(self) -> None:
+        """After an early answer (413, 403, 404, ...) to a request whose body was not read, read
+        and drop the rest (up to Content-Length, at most DRAIN_SECONDS) before the connection
+        closes. Closing with unread bytes makes the kernel reset the connection, and the client,
+        still sending, would see that reset instead of the answer."""
+        left = self._body_left
+        deadline = time.monotonic() + DRAIN_SECONDS
+        self.close_connection = True
+        try:
+            self.wfile.flush()
+            self.connection.settimeout(DRAIN_READ_TIMEOUT)
+            while (left is None or left > 0) and time.monotonic() < deadline:
+                chunk = self.rfile.read1(FILE_CHUNK if left is None else min(FILE_CHUNK, left))
+                if not chunk:
+                    break
+                if left is not None:
+                    left -= len(chunk)
+        except (OSError, ValueError):
+            pass
+        self._body_pending = False
 
     def _fail(self, exc: EarmarkError) -> None:
         if self._responded:  # headers already went out: all we can do is drop the connection
@@ -192,6 +225,7 @@ class Handler(BaseHTTPRequestHandler):
             raise InvalidRequest("Content-Type must be application/json")
         data = self.rfile.read(length)
         self._body_pending = False
+        self._body_left = 0
         if len(data) < length:
             self.close_connection = True
             raise InvalidRequest("request body ended early")
@@ -212,21 +246,110 @@ class Handler(BaseHTTPRequestHandler):
                                  headers={"Allow": ", ".join(sorted(set(allowed)))})
             raise NotFound(f"no such endpoint: {path}", hint="see docs/HTTP_API.md")
         self._command_name = route.name
-        body = None
+        body = stream = None
         if lookup != "GET":
             self._check_write()
-            body = self._read_body()
+            if route.stream:
+                stream = self._body_stream()
+            else:
+                body = self._read_body()
         params = {k: unquote(v) for k, v in raw_params.items()}
         qs = parse_qs(query, keep_blank_values=True)
         board = self.server.open_board()
         try:
-            data = api.run(route, api.Request(board, params, qs, body))
+            if stream is not None:
+                self._check_upload_size(board, stream.left, qs)
+            data = api.run(route, api.Request(board, params, qs, body, stream, self.headers))
         finally:
             try:
                 board.close()
             except Exception:
                 pass
-        self._send_json(200, self.server.envelope(route.name, data=data))
+        if isinstance(data, api.RawFile):
+            self._send_file(data)
+        else:
+            self._send_json(200, self.server.envelope(route.name, data=data))
+
+    # ---- uploads -----------------------------------------------------------------------
+    def _body_stream(self) -> "_BodyStream":
+        """The raw request body for upload routes: Content-Length required, read on demand."""
+        if self.headers.get("Transfer-Encoding"):
+            raise InvalidRequest("chunked request bodies are not supported", hint="send Content-Length")
+        raw_length = (self.headers.get("Content-Length") or "").strip()
+        if raw_length == "":
+            raise _HTTPError(HTTPStatus.LENGTH_REQUIRED,
+                             InvalidRequest("Content-Length is required",
+                                            hint="send the file bytes as the body, with Content-Length"))
+        length = _length(raw_length)
+        if length is None:
+            raise InvalidRequest("invalid Content-Length")
+        return _BodyStream(self, length)
+
+    @staticmethod
+    def _check_upload_size(board: Any, length: int, qs: dict) -> None:
+        """413 before reading a byte when Content-Length is over the board's limit."""
+        limit_mb = getattr(board, "max_attachment_mb", None)
+        if isinstance(limit_mb, int) and length > limit_mb * 1024 * 1024:
+            from earmark.attachments import too_large
+
+            name = (qs.get("name") or ["the file"])[-1] or "the file"
+            raise too_large(name, limit_mb, length)
+
+    # ---- attachment bytes --------------------------------------------------------------
+    def _send_file(self, item: "api.RawFile") -> None:
+        """An attachment's bytes: ETag (its sha256) with If-None-Match → 304, one Range → 206,
+        inline only for types a browser shows without running them; always sandboxed."""
+        etag = f'"{item.sha256}"'
+        if _etag_matches(self.headers.get("If-None-Match"), item.sha256):
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", FILE_CACHE)
+            self._finish_headers()
+            return
+        try:
+            fh = open(item.path, "rb")
+        except FileNotFoundError:
+            raise NotFound(f"the file of {item.name} is missing from {item.path}",
+                           hint="earmark doctor") from None
+        with fh:
+            size = os.fstat(fh.fileno()).st_size
+            wanted = self.headers.get("Range")
+            if_range = self.headers.get("If-Range")
+            if wanted and if_range and not _etag_matches(if_range, item.sha256):
+                wanted = None  # the client's copy is another version: send all of it
+            span = _parse_range(wanted, size) if wanted else None
+            if span == "unsatisfiable":
+                raise _HTTPError(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE,
+                                 InvalidRequest(f"range {wanted} is outside the file ({size} bytes)"),
+                                 headers={"Content-Range": f"bytes */{size}"})
+            start, end = span if span else (0, size - 1)
+            inline = inline_type(item.mime)
+            self.send_response(206 if span else 200)
+            if inline:
+                ctype = item.mime + ("; charset=utf-8" if item.mime == "text/plain" else "")
+            else:
+                ctype = "application/octet-stream"
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(max(0, end - start + 1)))
+            if span:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("Content-Disposition", _disposition("inline" if inline else "attachment",
+                                                                 item.name))
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", FILE_CACHE)
+            self.send_header("Content-Security-Policy", FILE_CSP)
+            self._finish_headers()
+            if self._head or size == 0:
+                return
+            fh.seek(start)
+            left = end - start + 1
+            while left > 0:
+                chunk = fh.read(min(FILE_CHUNK, left))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                left -= len(chunk)
 
     def _send_error(self, exc: EarmarkError) -> None:
         if isinstance(exc, _HTTPError):
@@ -354,6 +477,96 @@ class Handler(BaseHTTPRequestHandler):
     def _write_event(self, chunk: bytes) -> None:
         self.wfile.write(chunk)
         self.wfile.flush()
+
+
+class _BodyStream:
+    """The request body as a binary stream that never reads past Content-Length."""
+
+    def __init__(self, handler: Handler, length: int):
+        self.handler = handler
+        self.left = length
+        if length == 0:
+            handler._body_pending = False
+
+    def read(self, n: int = -1) -> bytes:
+        if self.left <= 0:
+            return b""
+        want = self.left if n is None or n < 0 else min(n, self.left)
+        data = self.handler.rfile.read(want)
+        if not data:
+            self.handler.close_connection = True
+            self.handler._body_pending = False
+            raise InvalidRequest("request body ended early")
+        self.left -= len(data)
+        self.handler._body_left = self.left
+        if self.left == 0:
+            self.handler._body_pending = False
+        return data
+
+
+def _length(raw: str | None) -> int | None:
+    try:
+        value = int((raw or "").strip())
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+INLINE_MAJOR = ("image/", "audio/", "video/")
+
+
+def inline_type(mime: str) -> bool:
+    """Shown in the page: images (not SVG, which can carry script), audio, video, PDF, plain text."""
+    if mime == "image/svg+xml":
+        return False
+    return mime.startswith(INLINE_MAJOR) or mime in ("application/pdf", "text/plain")
+
+
+def _disposition(kind: str, name: str) -> str:
+    fallback = "".join(ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "_" for ch in name)
+    return f"{kind}; filename=\"{fallback}\"; filename*=UTF-8''{quote(name, safe='')}"
+
+
+def _etag_matches(header: str | None, sha256: str) -> bool:
+    if not header:
+        return False
+    for tag in header.split(","):
+        tag = tag.strip()
+        if tag == "*":
+            return True
+        if tag.startswith("W/"):
+            tag = tag[2:]
+        if tag.strip('"') == sha256:
+            return True
+    return False
+
+
+def _parse_range(header: str, size: int):
+    """(start, end) for one `bytes=` range, 'unsatisfiable', or None to ignore the header
+    (malformed, another unit, or several ranges: the whole file is sent)."""
+    unit, _, spec = header.partition("=")
+    if unit.strip().lower() != "bytes" or "," in spec:
+        return None
+    first, dash, last = spec.strip().partition("-")
+    if not dash:
+        return None
+    first, last = first.strip(), last.strip()
+    if not first:  # suffix: the last N bytes
+        if not last.isdigit():
+            return None
+        n = int(last)
+        if n == 0:
+            return "unsatisfiable"
+        return (max(0, size - n), size - 1) if size else "unsatisfiable"
+    if not first.isdigit() or (last and not last.isdigit()):
+        return None
+    start = int(first)
+    end = min(int(last), size - 1) if last else size - 1
+    if start >= size:
+        return "unsatisfiable"
+    if end < start:
+        return None
+    return start, end
 
 
 class _HTTPError(EarmarkError):
