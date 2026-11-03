@@ -53,11 +53,12 @@ service, so every rule below lives in exactly one place.
 - **Writes.** Every write is one `BEGIN IMMEDIATE … COMMIT` holding the minimum work. If the
   lock is still held after `busy_timeout`, `write()` retries 3 times with jitter, then raises
   `busy` (retriable). A write never spans user think time.
-- **No write without a change.** Reads never write. Exceptions, each bounded: advancing a read
+- **No write without a change.** Reads never write, and a read never brings back an agent that
+  left. Exceptions, each bounded: advancing a read
   cursor when the caller asks (`--new`, `inbox`), and `agents.last_seen`, refreshed at most
   once per 60 s per agent. There are no heartbeats, no timers that write, no polling writes.
-- **Change detection is read-only.** The UI server and `earmark wait` keep one connection and
-  check `PRAGMA data_version` (memory, no I/O on the main file); only a change triggers a query.
+- **Change detection is read-only.** The UI server and `earmark wait` (modes `work`, `review`,
+  `changes`, `any`) keep one connection and check `PRAGMA data_version` (memory, no I/O on the main file); only a change triggers a query.
 - **Migrations.** `meta.schema_version`; `db.py` applies numbered migrations in one write
   transaction on open when the file is older. Version 1 is `schema.sql`.
 - **Startup.** Lazy imports: `earmark ls` loads only cli, board, db. Target under 50 ms.
@@ -225,13 +226,18 @@ Agents never message each other to get work done. A dependency is an issue.
   handed to a different agent. `--as H` for an existing H from another CLI is a conflict, unless H
   is offline and the same profile is given: that is a deliberate resume (event `rejoin`). The
   `join` event records the profile and the CLI (`worker cli=codex`).
+- Without `--as`, `join P --cli C` first resumes the most recently seen offline agent of profile P
+  on CLI C (`rejoin`, `(resumed)` in the briefing), keeping its assignments and cursors, so a new
+  session of the same seat continues where the last one stopped.
 - `leave` sets the agent offline and returns its work: `in_progress` and assigned `todo`
   issues become unassigned `todo`, held reviews return to the review queue. `--keep` skips it.
 - `check` is the change feed for one agent. It keeps a cursor (`check`: last event id and last
   comment id) and reports only what others changed since then on the agent's world: issues
   newly assigned to it, events on issues it is assignee or reviewer of, comments and files on
   them, and comments anywhere that mention it, summarized per issue as kinds of change and counts
-  (never content). Nothing changed prints one line. It advances the cursor (one small write)
+  (never content). A comment counts only past both the check cursor and the agent's `issue:<id>`
+  cursor, so what `next` or `show --new` already printed is not reported again. Nothing changed
+  prints one line. It advances the cursor (one small write)
   unless `--peek`; `join` starts the cursor at the current heads.
 - **Dirty hint.** Every write command run by an agent, and `next`, ends with one extra line when
   the agent's check feed is not empty: `· 3 changes for you: earmark check` (`meta.changes` in
