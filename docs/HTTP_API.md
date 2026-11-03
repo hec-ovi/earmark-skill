@@ -2,12 +2,15 @@
 
 Served by `earmark ui` on `http://127.0.0.1:7477`. JSON in and out. Every response body is the
 envelope from `contracts/envelope.schema.json`: `{contract_version, ok, data, error, meta}`.
-The HTTP status mirrors the error code: `invalid_request` 400, `forbidden` 403,
-`not_found` 404, `conflict` 409, `busy` 503, everything else 500.
+The HTTP status follows `src/earmark/errors.py`: `invalid_request`, `identity_required` and
+`not_joined` 400, `forbidden` 403, `not_found`, `no_board` and `empty` 404, `conflict` 409,
+`busy` 503, `internal_error` 500. A known path with the wrong method answers 405 with an
+`Allow` header; a body over 1 MB answers 413.
 
-Requests act as the board owner. Every non-GET request must send `X-Earmark: 1` and
-`Content-Type: application/json`; the server rejects a `Host` other than
-`127.0.0.1:<port>` or `localhost:<port>` and sends no CORS headers.
+Requests act as the board owner. Every non-GET request with a body must send `X-Earmark: 1`
+and `Content-Type: application/json`. The server rejects a `Host` other than
+`127.0.0.1:<port>` or `localhost:<port>`, refuses writes whose `Origin` is another site, and
+sends no CORS headers.
 
 ## Shapes
 
@@ -57,7 +60,7 @@ Requests act as the board owner. Every non-GET request must send `X-Earmark: 1` 
 | GET | `/api/topics` | `?all=1` includes archived | `[Topic]` roots with children |
 | POST | `/api/topics` | `{path, name?, icon?, description?}` | `Topic` |
 | PATCH | `/api/topics/{id}` | `{name?, icon?, description?, path?, position?, archived?}` | `Topic` |
-| DELETE | `/api/topics/{id}` | | `{deleted: id}` |
+| DELETE | `/api/topics/{id}` | `?archive=1` archives instead of removing | `{deleted: id}` or `Topic` |
 | GET | `/api/issues` | query mirrors `earmark ls`: `topic` (repeatable), `exact`, `status`, `priority`, `type`, `assignee`, `reviewer`, `reporter`, `label` (repeatable), `q`, `due_before`, `overdue`, `updated_since`, `created_since`, `ready`, `blocked`, `stale`, `parent`, `sort`, `desc`, `limit`, `offset` | `{items: [IssueSummary], total, limit, offset}` |
 | POST | `/api/issues` | `{title, body?, topic?, priority?, type?, status?, labels?, due?, parent?, assignee?}` | `Issue` |
 | GET | `/api/issues/{key}` | | `Issue` |
@@ -69,7 +72,7 @@ Requests act as the board owner. Every non-GET request must send `X-Earmark: 1` 
 | DELETE | `/api/issues/{key}/links` | `{kind, target}` | `Issue` |
 | DELETE | `/api/issues/{key}` | | `{deleted: key}` |
 | GET | `/api/issues/{key}/comments` | `?since=ID&limit=N` | `{items: [Comment], last_id, has_more}` |
-| POST | `/api/issues/{key}/comments` | `{body, kind?, reply_to?}` | `Comment` |
+| POST | `/api/issues/{key}/comments` | `{body, kind?: note\|progress\|question, reply_to?}` (handoff, approval and changes come from the status actions) | `Comment` |
 | PATCH | `/api/comments/{id}` | `{body}` | `Comment` |
 | GET | `/api/issues/{key}/events` | | `[Event]` |
 | GET | `/api/activity` | `?since=EVENT_ID&limit=N` | `{items: [Event], last_id}` newest first |
@@ -78,7 +81,7 @@ Requests act as the board owner. Every non-GET request must send `X-Earmark: 1` 
 | POST | `/api/profiles` | `{slug, name, role, icon?, prompt?, topics?}` | `Profile` |
 | PATCH | `/api/profiles/{slug}` | `{version, name?, role?, icon?, prompt?, topics?}` | `Profile` |
 | DELETE | `/api/profiles/{slug}` | | `{deleted: slug}` |
-| GET | `/api/stream` | Server-Sent Events | `event: change` / `data: {"event_id": N, "comment_id": M}` on every commit by anyone; `: ping` every 25 s |
+| GET | `/api/stream` | Server-Sent Events | a `retry:` line and one `change` on connect, then `event: change` / `data: {"event_id": N, "comment_id": M}` on every commit by anyone; `: ping` every 25 s; at most 32 streams |
 
 Static files: `/` serves `ui/index.html`; `/assets/*` serves the rest of `src/earmark/ui/`.
 The UI routes in the hash: `#/` list, `#/board`, `#/issue/GAME-42`, `#/team`, `#/topic/<path>`.
