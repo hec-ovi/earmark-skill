@@ -16,8 +16,9 @@ TRIAGE_LIMIT = 100
 
 # ---- check: the per-agent change feed (cursor scope 'check': last event id, last comment id) --
 # Only writes by others count, after the cursor (and, for `check`, up to the heads read at its
-# start). Every row below maps to a change kind or a count, so `pending_changes` (a count of
-# distinct issues over the same queries) is exactly the number of issues `check` lists.
+# start); a comment also only when the agent has not read it on its issue yet. Every row below
+# maps to a change kind or a count, so `pending_changes` (a count of distinct issues over the
+# same queries) is exactly the number of issues `check` lists.
 # Plans are pinned (CROSS JOIN order, INDEXED BY): the agent's own issues, then index seeks into
 # their events and comments after the cursor, so the cost follows the agent's share of the board,
 # never how long ago it last checked, whatever statistics the board carries.
@@ -37,14 +38,19 @@ CHECK_EVENTS_NAMING = [
     "SELECT {cols} FROM events e WHERE e.action IN ('assignee', 'takeover', 'release') "
     "AND e.id > :ev{upto} AND e.actor <> :me AND e.issue_id IS NOT NULL "
     "AND (e.old = :me OR (e.action = 'assignee' AND e.new = :me))"]
-# comments on its issues, and comments anywhere mentioning it
+# comments on its issues, and comments anywhere mentioning it; a comment the agent already read
+# on its issue (`next`, `show --new`, `comments --new` moved its `issue:<id>` cursor past it) is
+# not news, the same dedupe the inbox uses (one primary-key seek per comment row)
+_UNREAD = ("c.id > coalesce((SELECT ic.last_comment_id FROM cursors ic WHERE ic.agent = :me "
+           "AND ic.scope = 'issue:' || c.issue_id), 0)")
 CHECK_COMMENTS_MINE = [
     f"SELECT {{cols}} FROM issues i INDEXED BY {index} CROSS JOIN comments c INDEXED BY "
     f"comments_issue ON c.issue_id = i.id AND c.id > :cm{{upto}} WHERE i.{seat} = :me "
-    f"AND c.author <> :me" for seat, index in _SEATS]
+    f"AND c.author <> :me AND {_UNREAD}" for seat, index in _SEATS]
 CHECK_COMMENTS_MENTIONING = [
     "SELECT {cols} FROM mentions m INDEXED BY mentions_handle CROSS JOIN comments c "
-    "ON c.id = m.comment_id WHERE m.handle = :me AND m.comment_id > :cm{upto} AND c.author <> :me"]
+    "ON c.id = m.comment_id WHERE m.handle = :me AND m.comment_id > :cm{upto} AND c.author <> :me "
+    f"AND {_UNREAD}"]
 _EVENT_COLS = "e.id, e.issue_id, e.actor, e.action, e.old, e.new, e.at"
 _COMMENT_COLS = ("c.id, c.issue_id, c.kind, EXISTS (SELECT 1 FROM mentions q WHERE "
                  "q.comment_id = c.id AND q.handle = :me) AS mentioned")
@@ -389,8 +395,9 @@ class TeamMixin:
     def check(self, *, peek: bool = False) -> dict:
         """The actor's change feed since its last check (or join): issues newly assigned to it,
         events by others on issues it is assignee or reviewer of, comments and files by others
-        on them, comments anywhere mentioning it; summarized per issue as kinds of change and
-        counts. {agent, since, holding, todo_for_you, changed (at most 10: action first, then
+        on them, comments anywhere mentioning it (only past its `issue:<id>` cursor: what `next`
+        or `show --new` printed is not reported again); summarized per issue as kinds of change
+        and counts. {agent, since, holding, todo_for_you, changed (at most 10: action first, then
         effective priority, then key), more, cursor}. Advances the cursor to the heads read at
         the start (one small write) unless peek; `cursor` is the stored cursor after the call."""
         me = self._need_actor()
