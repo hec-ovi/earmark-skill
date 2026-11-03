@@ -26,8 +26,14 @@ export function Sidebar() {
     blocked: state.viewCounts.blocked,
     done: state.viewCounts.done,
   };
-  const active = state.team.filter((a) => a.kind !== 'human' && a.presence === 'active').length;
-  const agents = state.team.filter((a) => a.kind !== 'human' && a.presence !== 'offline').slice(0, 4);
+  const rank = { active: 0, idle: 1 };
+  const online = state.team.filter((a) => a.kind !== 'human' && a.presence !== 'offline')
+    .sort((a, b) => rank[a.presence] - rank[b.presence] || a.handle.localeCompare(b.handle));
+  const active = online.filter((a) => a.presence === 'active').length;
+  const shown = online.slice(0, 3);
+  const teamTip = online.length
+    ? `${online.length} online (${active} active): ${online.map((a) => a.handle).join(', ')}`
+    : 'No agents online';
   return html`<aside class=${cx('side', state.sidebarOpen && 'is-open')} aria-label="Navigation">
     <div class="side-head">
       <a class="brand" href="#/" title="earmark board">
@@ -49,10 +55,10 @@ export function Sidebar() {
         <a class=${cx('nav-item', r.page === 'team' && 'is-active')} href="#/team" aria-current=${r.page === 'team' ? 'page' : null}>
           <${Icon} name="users" size=${16} cls="nav-ico" />
           <span class="nav-label">Team</span>
-          <span class="nav-stack" title=${active + ' agents active'}>
-            ${agents.map((a) => html`<${Avatar} key=${a.handle} handle=${a.handle} size=${16} presence=${false} />`)}
+          <span class="nav-stack" title=${teamTip}>
+            ${shown.map((a) => html`<${Avatar} key=${a.handle} handle=${a.handle} size=${20} presence=${false} />`)}
+            ${online.length > shown.length ? html`<span class="nav-more">+${online.length - shown.length}</span>` : null}
           </span>
-          ${active ? html`<span class="nav-count is-live" title=${active + ' active now'}>${active}</span>` : null}
         </a>
       </nav>
       <div class="side-section">
