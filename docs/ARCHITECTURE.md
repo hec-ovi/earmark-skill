@@ -46,8 +46,10 @@ service, so every rule below lives in exactly one place.
 - **Close without checkpoint.** On Python 3.12+ connections set
   `SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE`, so a short-lived CLI process does not copy the WAL into the
   database and fsync on exit; auto-checkpoint (1,000 pages) and `journal_size_limit` still bound
-  the WAL. This halves bytes written per command. Copy a board with `earmark backup`, not by
-  copying `earmark.db` alone.
+  the WAL. This halves bytes written per command. The WAL stays on disk between commands, and
+  under sustained load it can grow past 8 MiB while readers keep it from restarting; it is
+  truncated back to the limit at the next quiet checkpoint (soak peak: 21 MiB). Copy a board with
+  `earmark backup`, not by copying `earmark.db` alone.
 - **Writes.** Every write is one `BEGIN IMMEDIATE … COMMIT` holding the minimum work. If the
   lock is still held after `busy_timeout`, `write()` retries 3 times with jitter, then raises
   `busy` (retriable). A write never spans user think time.
