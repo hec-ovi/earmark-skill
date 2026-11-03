@@ -6,5 +6,5 @@ Worker loop. Add --as <your handle> to every command.
 4. Done: earmark attach KEY FILE… for deliverables, then earmark review KEY -m "<what changed> · <files> · <how to verify>" --next. Exit 4: go to 5.
 5. earmark next --review: review someone else's handoff (approve or reject --next).
 6. Still nothing: earmark check, handle what needs you.
-7. Nothing left: earmark leave, then a 3-line summary. Told to stay on duty: earmark wait --timeout 2m, then go to 1.
+7. Nothing left: earmark leave, then a 3-line summary. Told to stay on duty: earmark wait --timeout 2m, then go to 1 (`wait: board` means nothing is open: stop).
 A line ending "· N changes for you" means: run earmark check. Exit 3: someone else holds it, take another. Exit 5: retry.
