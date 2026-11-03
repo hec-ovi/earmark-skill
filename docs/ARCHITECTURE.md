@@ -43,6 +43,11 @@ service, so every rule below lives in exactly one place.
 - **Connection pragmas.** `journal_mode=WAL` (set at init, persistent), `synchronous=NORMAL`,
   `foreign_keys=ON`, `busy_timeout=10000`, `journal_size_limit=8388608`.
   `sqlite3.connect(..., isolation_level=None)`: autocommit, explicit transactions only.
+- **Close without checkpoint.** On Python 3.12+ connections set
+  `SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE`, so a short-lived CLI process does not copy the WAL into the
+  database and fsync on exit; auto-checkpoint (1,000 pages) and `journal_size_limit` still bound
+  the WAL. This halves bytes written per command. Copy a board with `earmark backup`, not by
+  copying `earmark.db` alone.
 - **Writes.** Every write is one `BEGIN IMMEDIATE … COMMIT` holding the minimum work. If the
   lock is still held after `busy_timeout`, `write()` retries 3 times with jitter, then raises
   `busy` (retriable). A write never spans user think time.
@@ -63,8 +68,11 @@ service, so every rule below lives in exactly one place.
 - An actor must exist in `agents` (`join` creates it; `init` creates the owner as `kind=human`).
   Unknown handles fail with `not_joined` and a hint to run `earmark join`.
 - Handles and slugs: `[a-z0-9][a-z0-9-]*`, at most 32 chars (topics 48).
-- The owner and actors whose profile role is `pm` may make any status move; everyone else
-  follows the transition table.
+- The owner overrides every rule below. An actor whose profile role is `pm` may make any
+  status move, but not on an issue someone else holds under a live lease, and may not approve or
+  reject an issue it is the assignee of. Everyone else follows the transition table.
+- New issues start as `backlog` or `todo`. Only the owner or a pm may assign someone else when
+  creating an issue; anyone may assign themselves.
 
 ## Issues
 
@@ -136,7 +144,9 @@ one call (two transactions; the first commits even when nothing is left to claim
   orders by effective priority, then `review_requested_at`.
 - **Review rounds are capped.** The `meta.max_review_rounds`-th reject (default 3) does not
   return the issue to the worker: it moves to `blocked`, assignee kept, with a note that the owner
-  or a pm must decide (event `review_cap`). Agents never ping-pong an issue forever.
+  or a pm must decide (event `review_cap`). Agents never ping-pong an issue forever. Triage lists
+  these as exhausted reviews, auto-unblock leaves them alone, and an owner or pm approve or reopen
+  resets the count (`review_reset`).
 - Nothing found: exit code 4 (`empty`) with counts that tell the agent where to look next
   (review queue size, inbox count, stale claims).
 
@@ -178,7 +188,8 @@ Agents never message each other to get work done. A dependency is an issue.
 - `topic add` creates missing ancestors (name defaults to the slug, editable later).
 - Moving or renaming rewrites the paths of the node and its descendants in one transaction.
   Issues and profile scopes point at topic ids, so they follow automatically.
-- Removing needs an empty subtree (no issues, no children) unless `--archive`.
+- Removing needs an empty subtree (no issues, no children) that no profile scope references,
+  unless `--archive`. A profile cannot be removed while any agent (online or offline) uses it.
 - Counts per node roll up the subtree: open (not done/canceled) and per status.
 
 ## Attachments
@@ -206,9 +217,12 @@ Agents never message each other to get work done. A dependency is an issue.
 
 - **Profiles** carry a role (`worker|reviewer|pm`), a prompt and a topic scope. `init` seeds
   `worker`, `reviewer` and `pm` from `src/earmark/profiles/`.
-- `join PROFILE [--as HANDLE]` creates or updates the agent (handle defaults to
-  `<profile>-<n>`, smallest free n), sets it online and prints the briefing: identity line,
-  profile prompt, scope, issues assigned, inbox count and the role's loop.
+- `join PROFILE [--as HANDLE]` creates or updates the agent and prints the briefing: identity
+  line, profile prompt, scope, issues assigned, inbox count and the role's loop. Without `--as` the
+  handle is `<profile>-<n>` with the smallest n no agent has ever used, so a handle is never
+  handed to a different agent. `--as H` for an existing H from another CLI is a conflict, unless H
+  is offline and the same profile is given: that is a deliberate resume (event `rejoin`). The
+  `join` event records the profile and the CLI (`worker cli=codex`).
 - `leave` sets the agent offline and returns its work: `in_progress` and assigned `todo`
   issues become unassigned `todo`, held reviews return to the review queue. `--keep` skips it.
 - `check` is the change feed for one agent. It keeps a cursor (`check`: last event id and last
@@ -227,9 +241,11 @@ Agents never message each other to get work done. A dependency is an issue.
 
 One row per change: `created`, `status`, `title`, `body`, `priority`, `type`, `topic`,
 `assignee`, `reviewer`, `due`, `labels`, `parent`, `link`, `unlink`, `rank`, `claim`,
-`release`, `takeover`, `review`, `approve`, `reject`, `reopen`; board level: `topic_add`,
+`release`, `takeover`, `review`, `approve`, `reject`, `reopen`, `unblocked`, `review_cap`
+(new = rounds), `review_reset`, `attach`, `detach`, `delete`; board level: `topic_add`,
 `topic_edit`, `topic_move`, `topic_remove`, `profile_add`, `profile_edit`, `profile_remove`,
-`join`, `leave`. The UI timeline and activity feed read this table.
+`join`, `rejoin`, `leave`, `config`. The UI timeline, the activity feed and `check` read this
+table.
 
 ## Output contract
 
