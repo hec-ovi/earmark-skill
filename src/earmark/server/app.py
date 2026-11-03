@@ -81,6 +81,7 @@ class Handler(BaseHTTPRequestHandler):
     server: "EarmarkServer"
     _head = False
     _body_pending = False
+    _responded = False
     _command_name = "http"
 
     # ---- logging -----------------------------------------------------------------------
@@ -116,6 +117,7 @@ class Handler(BaseHTTPRequestHandler):
     # ---- dispatch ----------------------------------------------------------------------
     def _dispatch(self, method: str) -> None:
         self._head = method == "HEAD"
+        self._responded = False
         self._command_name = f"{method} {self.path.split('?', 1)[0]}"
         length = self.headers.get("Content-Length")
         self._body_pending = bool(self.headers.get("Transfer-Encoding")) or (
@@ -132,13 +134,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._api(method, path, split.query)
             else:
                 self._static(method, path)
-        except EarmarkError as exc:
-            self._send_error(exc)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, socket.timeout):
             self.close_connection = True
+        except EarmarkError as exc:
+            self._fail(exc)
         except Exception as exc:  # a bug: report it as internal_error, log it
             self._log_internal(exc)
-            self._send_error(InternalError(f"internal error: {type(exc).__name__}"))
+            self._fail(InternalError(f"internal error: {type(exc).__name__}"))
+
+    def _fail(self, exc: EarmarkError) -> None:
+        if self._responded:  # headers already went out: all we can do is drop the connection
+            self.close_connection = True
+            return
+        self._send_error(exc)
 
     def _log_internal(self, exc: BaseException) -> None:
         sys.stderr.write(f"earmark ui: internal error on {self._command_name}: "
@@ -262,6 +270,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.close_connection:
             self.send_header("Connection", "close")
         self.end_headers()
+        self._responded = True
 
     # ---- static ------------------------------------------------------------------------
     def _static(self, method: str, path: str) -> None:
@@ -280,8 +289,8 @@ class Handler(BaseHTTPRequestHandler):
             item = None
         if item is None:
             raise NotFound(f"not found: {path}")
-        etag_match = self.headers.get("If-None-Match")
-        if etag_match and item.etag in [t.strip() for t in etag_match.split(",")]:
+        etag_match = (self.headers.get("If-None-Match") or "").strip()
+        if etag_match == "*" or item.etag in [t.strip() for t in etag_match.split(",")]:
             self.send_response(304)
             self.send_header("ETag", item.etag)
             self.send_header("Cache-Control", "no-cache")
