@@ -39,7 +39,10 @@ class WorkFlowTests(CliBoardCase):
         out = self.ok("next", as_="codex-qa").splitlines()
         self.assertEqual(out[3], "assignee: claude-ui   reviewer: codex-qa (lease until "
                                  "2026-11-03T12:02:11Z)   reporter: hector")
-        self.assertIn("handoff", self.ok("comments", "1", "--new", as_="codex-qa"))
+        # the handoff arrives with the claim, and the cursor moved past it
+        self.assertEqual(out[-3:], ["1 new comment:", "#1  claude-ui  handoff  11-03 10:02",
+                                    "  state in store · test_reload"])
+        self.assertEqual(self.ok("comments", "1", "--new", as_="codex-qa"), "comments: nothing new after #1\n")
         self.assertEqual(self.ok("reject", "1", "-m", "tabs reset: menu.js:42", as_="codex-qa"),
                          "GAME-1 rejected · todo · assignee claude-ui\n")
         self.assertTrue(self.ok("next", as_="claude-ui").startswith("GAME-1  "))

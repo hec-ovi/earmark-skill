@@ -9,7 +9,10 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from test_cli_support import contract_line, fake_board, issue, run_main, summary  # noqa: E402
+from unittest import mock  # noqa: E402
+
+from test_cli_support import (DAY, contract_block, contract_line, fake_board, issue,  # noqa: E402
+                              run_main, summary)
 
 from earmark import errors  # noqa: E402
 
@@ -31,6 +34,26 @@ class NextTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertTrue(out.startswith("GAME-42  Eye color widget resets on reload\nstatus: in_progress"))
         self.assertEqual(boards[0].called("next"), [((), {"review": None, "topics": [], "dry_run": False})])
+
+    def test_then_the_comments_not_seen(self):
+        with fake_board() as boards, mock.patch("earmark.cli.render.today", return_value=DAY):
+            code, out, _ = run_main(["next", "--as", "claude-ui"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out, contract_block("GAME-42  Eye color") + "\n\n2 new comments:\n"
+                         + contract_block("#1187  claude-ui").rsplit("\n", 1)[0] + "\n")
+        self.assertEqual(boards[0].called("list_comments"), [(("GAME-42",), {"new": True})])
+        empty = {"items": [], "last_id": 1199, "has_more": False}
+        with fake_board(list_comments=empty), mock.patch("earmark.cli.render.today", return_value=DAY):
+            _, out, _ = run_main(["next", "--as", "claude-ui"])
+        self.assertEqual(out, contract_block("GAME-42  Eye color") + "\n")
+        with fake_board():
+            _, out, _ = run_main(["next", "--as", "claude-ui", "--json"])
+        self.assertEqual([c["id"] for c in json.loads(out)["data"]["comments"]], [1187, 1190])
+
+    def test_dry_run_reads_no_comments(self):
+        with fake_board() as boards:
+            run_main(["next", "--dry-run", "--as", "w-1"])
+        self.assertEqual(boards[0].called("list_comments"), [])
 
     def test_flags(self):
         with fake_board() as boards:
