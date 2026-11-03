@@ -717,10 +717,11 @@ class TeamMixin:
         """mode work|review|changes|any (inbox: an alias of changes). Read-only. Returns
         {reason, ...} when something is available for the actor, else None: {reason: changes,
         count} when its check feed is not empty (pending_changes), {reason: work|review, key,
-        title} when `next` would claim something. any = changes, or the role's own mode (review
-        for reviewers, work otherwise). The feed, not the inbox: once `check` has moved its
-        cursor, a wait blocks until something new arrives. `earmark wait` calls it after
-        data_version moves."""
+        title} when `next` would claim something, {reason: board, open_issues: 0} in every mode
+        when no issue is open (an agent on duty can stop; its feed goes first). any = changes,
+        or the role's own mode (review for reviewers, work otherwise). The feed, not the inbox:
+        once `check` has moved its cursor, a wait blocks until something new arrives.
+        `earmark wait` calls it at start and after data_version moves."""
         mode = str(mode or "any").strip().lower()
         mode = WAIT_ALIASES.get(mode, mode)
         if mode not in WAIT_MODES:
@@ -732,8 +733,13 @@ class TeamMixin:
                 count = self.pending_changes()
                 if count:
                     return {"reason": "changes", "count": count}
-                if mode == "changes":
-                    return None
+            open_marks = ", ".join("?" * len(model.OPEN))
+            if not conn.execute(f"SELECT EXISTS (SELECT 1 FROM issues WHERE status IN "
+                                f"({open_marks}))", model.OPEN).fetchone()[0]:
+                return {"reason": "board", "open_issues": 0}
+            if mode == "changes":
+                return None
+            if mode == "any":
                 mode = "review" if agent["role"] == "reviewer" else "work"
             _, row = self._pick(conn, agent, mode == "review", [], timeutil.now_iso())
             if row is not None:
