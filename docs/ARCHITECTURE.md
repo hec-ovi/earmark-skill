@@ -29,6 +29,7 @@ service, so every rule below lives in exactly one place.
 | `src/earmark/server/` | HTTP routes and live updates; no SQL |
 | `src/earmark/ui/` | static web UI: HTML, CSS, JS modules, icon sprite; no build step |
 | `src/earmark/profiles/` | default profile prompts and the per-role loop text printed by `join` |
+| `<project>/.earmark/files/` | attachment bytes, content-addressed, beside `earmark.db` |
 | `skills/earmark/` | canonical skill (SKILL.md + references/), mirrored by `scripts/sync-skill-copies.py` |
 | `contracts/` | JSON Schemas for every `--json` payload and HTTP response |
 
@@ -151,6 +152,27 @@ Inside one `BEGIN IMMEDIATE`, select the first candidate and claim it.
   Issues and profile scopes point at topic ids, so they follow automatically.
 - Removing needs an empty subtree (no issues, no children) unless `--archive`.
 - Counts per node roll up the subtree: open (not done/canceled) and per status.
+
+## Attachments
+
+- Files belong to an issue, optionally to one of its comments (images, audio, video, PDFs,
+  logs, anything). Bytes live beside the database in `.earmark/files/<sha[0:2]>/<sha256><ext>`;
+  SQLite stores only the `attachments` row, so the database stays small and fast.
+- **Content-addressed, written once.** The writer streams the input to a temp file in
+  `.earmark/files/` while hashing, then `os.replace`s it onto its final name (or drops it when
+  that name already exists). Identical uploads share one file. Files are never modified.
+- **Order.** Bytes first, then the row in one write transaction. A crash in between leaves at
+  most an unreferenced file, which `doctor` reports and `doctor --fix` removes.
+- **Removal.** `detach` (the author, the owner or a pm) deletes the row and, after commit, the
+  file when no other row references its sha256. Deleting an issue does the same for its files.
+- **Limits.** `meta.max_attachment_mb` (default 50) per file; names keep their base name only
+  (no directories), at most 255 chars; `ext` is the lowercased original extension.
+- **Kind** is derived from the MIME type (by extension, `mimetypes`): `image`, `audio`,
+  `video`, `pdf`, `text` or `file`.
+- **Agents read by path.** `earmark attachments KEY` prints absolute paths so agents open
+  images and files with their own tools; nothing is base64'd into the terminal.
+- An attach by the holder renews the lease like any holder write; events `attach`, `detach`.
+- `backup DIR` writes `DIR/earmark.db` and copies `files/`; `export` lists attachment rows.
 
 ## Team
 
