@@ -42,7 +42,7 @@ LUCIDE = [
     "panel-left", "maximize-2", "minimize-2", "arrow-left", "arrow-right", "reply",
     "at-sign", "refresh-cw", "loader-circle", "info", "circle-alert", "move", "sun", "moon",
     "monitor", "grip-vertical", "external-link", "git-fork", "flag", "user-plus", "user-x",
-    "eye-off", "text-quote", "check-check", "lock", "circle-dot", "workflow",
+    "eye-off", "text-quote", "check-check", "lock", "circle-dot", "workflow", "fold-horizontal",
     # attachments
     "paperclip", "download", "upload", "file", "file-image", "file-audio", "file-video", "file-code",
     # topic and profile icon palette

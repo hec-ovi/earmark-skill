@@ -312,6 +312,7 @@ export function issueQueries(route = state.base) {
   } else if (route.layout === 'board' && !f.status.length && view !== 'done' && view !== 'review') {
     queries.push(Object.assign({}, p, { status: 'open' }));
     queries.push(Object.assign({}, p, { status: 'done', updated_since: '14d', sort: 'updated', desc: true, limit: 50 }));
+    queries.push(Object.assign({}, p, { status: 'canceled', updated_since: '14d', sort: 'updated', desc: true, limit: 50 }));
   } else {
     queries.push(Object.assign({}, p, { status }));
   }
@@ -333,9 +334,10 @@ export async function loadIssues({ quiet = false } = {}) {
     let more = false;
     pages.forEach((pg, i) => {
       for (const it of pg.items) seen.set(it.key, it);
-      // the board's "recently done" column is a capped extra, not part of the total
-      if (!(state.base.layout === 'board' && i === 1 && queries.length === 2 && !queries[1].blocked)) total += pg.total;
-      if (pg.total > pg.items.length + (pg.offset || 0)) more = true;
+      // the board's recently done / canceled columns are capped extras, not part of the total
+      const extra = state.base.layout === 'board' && i > 0 && !queries[1].blocked;
+      if (!extra) total += pg.total;
+      if (!extra && pg.total > pg.items.length + (pg.offset || 0)) more = true;
     });
     let items = [...seen.values()];
     if (queries.length > 1) {

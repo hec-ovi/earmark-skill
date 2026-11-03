@@ -1,26 +1,55 @@
 // Board layout: one column per status; drag a card to another column to move it.
 
-import { html, useState, useRef, useLayoutEffect } from './lib.js';
+import { html, useState, useRef, useLayoutEffect, useEffect } from './lib.js';
 import { state, set, issueHref, navigate, moveStatus, loadIssues } from './state.js';
 import { Icon, StatusIcon, PriorityIcon, Avatar, TopicChip, DueChip, Empty, Spinner, LabelChip } from './components.js';
 import { STATUS, BOARD_ORDER } from './meta.js';
-import { cx, plural } from './util.js';
+import { cx, plural, store } from './util.js';
 import { openNewIssue } from './newissue.js';
 
 let dragKey = null;
 
+const COLUMNS = [...BOARD_ORDER, 'canceled'];
+const COLLAPSIBLE = new Set(['done', 'canceled']);
+const RECENT = { done: 'Closed in the last 14 days', canceled: 'Canceled in the last 14 days' };
+
 export function Board() {
   const l = state.list;
   const [over, setOver] = useState(null);
+  const [collapsed, setCollapsed] = useState(() => Object.assign({ canceled: true }, store.get('board.collapsed', {}) || {}));
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const scroller = useRef(null);
+  const measure = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
+  };
+  useLayoutEffect(measure);
+  useEffect(() => {
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
   if (l.loading && !l.items.length) return html`<div class="list-loading"><${Spinner} /> Loading issues…</div>`;
   if (l.error && !l.items.length) {
     return html`<${Empty} icon="circle-alert" title="Could not load issues" action=${html`<button type="button" class="btn" onClick=${() => loadIssues()}>Try again</button>`}>${l.error.message}</${Empty}>`;
   }
-  const cols = BOARD_ORDER.filter((s) => s !== 'backlog' || state.showBacklog);
+  const cols = COLUMNS.filter((s) => s !== 'backlog' || state.showBacklog);
   const by = new Map(cols.map((s) => [s, []]));
   for (const it of l.items) if (by.has(it.status)) by.get(it.status).push(it);
-  const canceled = l.items.filter((i) => i.status === 'canceled').length;
 
+  const toggle = (s) => {
+    const next = Object.assign({}, collapsed, { [s]: !collapsed[s] });
+    setCollapsed(next);
+    store.set('board.collapsed', next);
+  };
+  const nudge = (dir) => {
+    const el = scroller.current;
+    if (!el) return;
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollBy({ left: dir * Math.max(280, el.clientWidth * 0.6), behavior: reduced ? 'auto' : 'smooth' });
+  };
   const drop = async (status) => {
     setOver(null);
     const key = dragKey;
@@ -29,29 +58,50 @@ export function Board() {
     if (!it || it.status === status) return;
     await moveStatus(key, status);
   };
+  const dropTarget = (s) => ({
+    onDragOver: (e) => { if (dragKey) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (over !== s) setOver(s); } },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver(null); },
+    onDrop: (e) => { e.preventDefault(); drop(s); },
+  });
 
-  return html`<div class="board" role="list" aria-label="Board">
-    ${cols.map((s) => {
-      const items = by.get(s);
-      return html`<section key=${s} role="listitem" aria-label=${STATUS[s].label}
-        class=${cx('col', 'st-' + s, over === s && 'is-over')}
-        onDragOver=${(e) => { if (dragKey) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (over !== s) setOver(s); } }}
-        onDragLeave=${(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver(null); }}
-        onDrop=${(e) => { e.preventDefault(); drop(s); }}>
-        <header class="col-head">
-          <${StatusIcon} status=${s} size=${15} />
-          <span class="col-label">${STATUS[s].label}</span>
-          <span class="col-count">${items.length}</span>
-          ${s === 'done' ? html`<span class="col-note" title=${'Closed in the last 14 days' + (canceled ? ` · ${plural(canceled, 'canceled issue')} not shown` : '')}>last 14 days</span>` : null}
-          ${s === 'todo' || s === 'backlog' ? html`<button type="button" class="icon-btn is-xs col-add" aria-label=${'New issue in ' + STATUS[s].label}
-            title=${'New issue in ' + STATUS[s].label} onClick=${() => openNewIssue({ status: s })}><${Icon} name="plus" size=${14} /></button>` : null}
-        </header>
-        <div class="col-body">
-          ${items.map((it) => html`<${Card} key=${it.key} it=${it} />`)}
-          ${items.length ? null : html`<div class="col-empty">${over === s ? 'Drop to move here' : 'No issues'}</div>`}
-        </div>
-      </section>`;
-    })}
+  return html`<div class="board-wrap">
+    <div class="board-scroll" ref=${scroller} onScroll=${measure}>
+      <div class="board" role="list" aria-label="Board">
+        ${cols.map((s) => {
+          const items = by.get(s);
+          if (COLLAPSIBLE.has(s) && collapsed[s]) {
+            return html`<section key=${s} role="listitem" aria-label=${STATUS[s].label + ', collapsed'}
+              class=${cx('col', 'is-collapsed', 'st-' + s, over === s && 'is-over')} ...${dropTarget(s)}>
+              <button type="button" class="col-strip" aria-expanded="false" onClick=${() => toggle(s)}
+                title=${`Show ${STATUS[s].label} (${items.length}) · ${RECENT[s]}`}>
+                <${StatusIcon} status=${s} size=${15} />
+                <span class="col-count">${items.length}</span>
+                <span class="col-strip-label">${STATUS[s].label}</span>
+              </button>
+            </section>`;
+          }
+          return html`<section key=${s} role="listitem" aria-label=${STATUS[s].label}
+            class=${cx('col', 'st-' + s, over === s && 'is-over')} ...${dropTarget(s)}>
+            <header class="col-head">
+              <${StatusIcon} status=${s} size=${15} />
+              <span class="col-label">${STATUS[s].label}</span>
+              <span class="col-count">${items.length}</span>
+              ${RECENT[s] ? html`<span class="col-note" title=${RECENT[s]}>14 days</span>` : null}
+              ${s === 'todo' || s === 'backlog' ? html`<button type="button" class="icon-btn is-xs col-add" aria-label=${'New issue in ' + STATUS[s].label}
+                title=${'New issue in ' + STATUS[s].label} onClick=${() => openNewIssue({ status: s })}><${Icon} name="plus" size=${14} /></button>` : null}
+              ${COLLAPSIBLE.has(s) ? html`<button type="button" class="icon-btn is-xs col-add" aria-expanded="true" aria-label=${'Collapse ' + STATUS[s].label}
+                title="Collapse to a narrow strip" onClick=${() => toggle(s)}><${Icon} name="fold-horizontal" size=${14} /></button>` : null}
+            </header>
+            <div class="col-body">
+              ${items.map((it) => html`<${Card} key=${it.key} it=${it} />`)}
+              ${items.length ? null : html`<div class="col-empty">${over === s ? 'Drop to move here' : 'No issues'}</div>`}
+            </div>
+          </section>`;
+        })}
+      </div>
+    </div>
+    ${edges.left ? html`<div class="board-edge is-left"><button type="button" class="board-nudge" aria-label="Scroll the board left" title="More columns to the left" onClick=${() => nudge(-1)}><${Icon} name="chevron-left" size=${16} /></button></div>` : null}
+    ${edges.right ? html`<div class="board-edge is-right"><button type="button" class="board-nudge" aria-label="Scroll the board right" title="More columns to the right" onClick=${() => nudge(1)}><${Icon} name="chevron-right" size=${16} /></button></div>` : null}
   </div>`;
 }
 

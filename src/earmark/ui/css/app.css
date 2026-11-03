@@ -253,7 +253,7 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; container: main / inline-size; }
 .content { flex: 1 1 auto; min-height: 0; overflow: auto; container-type: inline-size; overscroll-behavior: contain; }
 .content, .side-scroll, .panel-scroll, .col-body, .menu-list, .dialog-body { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
-.content.is-board { overflow: auto; }
+.content.is-board { overflow: hidden; }
 
 /* sidebar */
 .side {
@@ -469,9 +469,28 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 
 /* ------------------------------------------------------------------ board */
 
-.board { display: flex; align-items: stretch; gap: 12px; height: 100%; min-width: min-content; padding: 12px var(--gutter) 16px; }
+.board-wrap { position: relative; height: 100%; }
+.board-scroll { height: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
+.board { display: flex; align-items: stretch; gap: 12px; height: 100%; width: max-content; padding: 12px var(--gutter) 16px; }
+.board-edge {
+  position: absolute; top: 0; bottom: 14px; z-index: 2; display: flex; align-items: center; width: 64px; pointer-events: none;
+}
+.board-edge.is-right { right: 0; justify-content: flex-end; padding-right: 10px; background: linear-gradient(to left, var(--bg) 12%, transparent); }
+.board-edge.is-left { left: 0; justify-content: flex-start; padding-left: 10px; background: linear-gradient(to right, var(--bg) 12%, transparent); }
+.board-nudge {
+  display: grid; place-items: center; width: 32px; height: 32px; padding: 0; pointer-events: auto;
+  border: 1px solid var(--border-2); border-radius: 50%; background: var(--raised); color: var(--text-2); box-shadow: var(--shadow-2);
+}
+.board-nudge:hover { color: var(--text); background: var(--surface-2); }
+.col.is-collapsed { flex: 0 0 44px; width: 44px; }
+.col-strip {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; height: 100%; padding: 12px 0;
+  border: 0; border-radius: 10px; background: transparent; color: var(--text-2);
+}
+.col-strip:hover { background: var(--surface-3); color: var(--text); }
+.col-strip-label { writing-mode: vertical-rl; font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
 .col {
-  display: flex; flex-direction: column; flex: 0 0 284px; width: 284px; min-width: 0; min-height: 0; max-height: 100%;
+  display: flex; flex-direction: column; flex: 0 0 272px; width: 272px; min-width: 0; min-height: 0; max-height: 100%;
   background: var(--bg-side); border: 1px solid var(--border); border-radius: 10px;
   transition: border-color 0.12s, background-color 0.12s;
 }
@@ -480,6 +499,7 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 .col-count { color: var(--text-3); font-weight: 500; font-variant-numeric: tabular-nums; }
 .col-note { color: var(--text-4); font-size: 11.5px; font-weight: 400; }
 .col-add { margin-left: auto; }
+.col-add + .col-add { margin-left: 0; }
 .col-body { flex: 1 1 auto; min-height: 64px; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 8px 8px; }
 .col-empty { padding: 18px 0; border: 1px dashed var(--border-2); border-radius: 8px; color: var(--text-4); font-size: 12.5px; text-align: center; }
 .card {
@@ -1057,7 +1077,7 @@ a.att-name:hover { text-decoration: underline; }
   .prop { grid-template-columns: 96px minmax(0, 1fr); }
   .profiles, .form-row { grid-template-columns: minmax(0, 1fr); }
   .board { padding: 12px var(--gutter); }
-  .col { flex-basis: min(300px, 84vw); }
+  .col { flex-basis: min(300px, 84vw); width: min(300px, 84vw); }
   .scrim { padding: 16px; align-items: flex-start; }
   .dialog { max-height: calc(100dvh - 32px); }
   .toasts { left: 16px; right: 16px; width: auto; }
