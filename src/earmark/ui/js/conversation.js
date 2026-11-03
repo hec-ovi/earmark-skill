@@ -132,7 +132,9 @@ function Composer({ issue, replyTo, clearReply }) {
     el.style.height = 'auto';
     el.style.height = Math.min(320, Math.max(72, el.scrollHeight)) + 'px';
   }, [body]);
-  useEffect(() => () => files.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  useEffect(() => () => filesRef.current.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);
   const addFiles = (list) => {
     const next = list.filter(Boolean).map((file) => ({ file, id: Math.random().toString(36).slice(2), url: file.type.startsWith('image/') ? safeObjectURL(file) : null }));
     if (next.length) setFiles((cur) => [...cur, ...next]);

@@ -1066,3 +1066,5 @@ a.att-name:hover { text-decoration: underline; }
 .nowrap { white-space: nowrap; }
 .agent-issue .mono, .menu-item .mono, .mini-key, .linked .mono { flex: none; white-space: nowrap; }
 .props.is-column .prop-sub { display: none; }
+.menu-item:focus-visible, .profile-row:focus-visible, .nav-item:focus-visible, .tree-link:focus-visible,
+.group-head:focus-visible, .row-title:focus-visible, .agent-issue:focus-visible, .mini-link:focus-visible { outline-offset: -2px; }

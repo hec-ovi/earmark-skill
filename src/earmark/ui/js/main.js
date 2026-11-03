@@ -94,7 +94,13 @@ function handleKey(e) {
   }
   if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
   if (state.dialog || state.popover) return;
-  if (e.key === '/') { e.preventDefault(); if (state.route.page === 'issue' && window.innerWidth < 700) closeIssue(); setTimeout(() => window.dispatchEvent(new Event('earmark:search')), 0); return; }
+  if (e.key === '/') {
+    e.preventDefault();
+    if (state.route.page === 'team') navigate(hrefFor(state.base));
+    if (state.route.page === 'issue' && (state.route.full || window.innerWidth < 700)) closeIssue();
+    setTimeout(() => window.dispatchEvent(new Event('earmark:search')), 50);
+    return;
+  }
   if (e.key === 'c') { e.preventDefault(); openNewIssue(); return; }
   if (e.key === '?') { e.preventDefault(); set({ dialog: { type: 'help' } }); return; }
   if (e.key === 'f' && state.route.page === 'issue') { e.preventDefault(); setIssueLayout(!state.route.full); return; }

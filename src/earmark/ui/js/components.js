@@ -175,7 +175,9 @@ export function firstFocusable(root, ...selectors) {
 
 /** Open a popover anchored to an element. content: a vnode (rendered by PopoverHost). */
 export function openPopover(anchor, content, opts = {}) {
-  const r = anchor.getBoundingClientRect();
+  let el = anchor;
+  let r = el.getBoundingClientRect();
+  while (!r.width && el.parentElement) { el = el.parentElement; r = el.getBoundingClientRect(); }
   set({ popover: { rect: { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width }, content, anchor, ...opts } });
 }
 
