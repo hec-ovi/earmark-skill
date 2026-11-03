@@ -305,8 +305,8 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 /* topic tree */
 .tree { display: flex; flex-direction: column; gap: 1px; }
 .tree-row {
-  position: relative; display: flex; align-items: center; gap: 0; height: 30px;
-  padding-left: calc(var(--depth, 0) * 14px); padding-right: 4px; border-radius: var(--r-2);
+  position: relative; display: flex; align-items: flex-start; gap: 0; min-height: 30px; padding: 5px 4px 5px calc(var(--depth, 0) * 10px);
+  border-radius: var(--r-2);
 }
 .tree-row:hover { background: var(--surface-3); }
 .tree-row.is-active { background: var(--accent-soft); }
@@ -319,14 +319,17 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 .tree-caret:hover { color: var(--text); background: var(--surface-2); }
 .tree-caret.is-leaf { pointer-events: none; }
 .tree-link {
-  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 100%; padding-left: 2px;
-  color: var(--text-2); text-decoration: none; font-size: 13.5px;
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 7px; padding-left: 1px;
+  color: var(--text-2); text-decoration: none; font-size: 13.5px; line-height: 20px;
 }
 .tree-link:hover { color: var(--text); }
-.tree-ico { color: var(--text-3); }
-.tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tree-count { flex: none; padding: 0 6px 0 4px; font-size: 12px; color: var(--text-4); font-variant-numeric: tabular-nums; }
-.tree-actions { display: none; flex: none; }
+.tree-ico { color: var(--text-3); margin-top: 2px; }
+.tree-name {
+  min-width: 0; overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical;
+}
+.tree-count { flex: none; padding: 0 6px 0 4px; font-size: 12px; line-height: 20px; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.tree-actions { display: none; flex: none; margin: -1px 0; }
 .tree-row:hover .tree-actions, .tree-row:focus-within .tree-actions { display: flex; }
 .tree-row:hover .tree-count, .tree-row:focus-within .tree-count { display: none; }
 .tree-row.is-archived .tree-name { color: var(--text-4); font-style: italic; }

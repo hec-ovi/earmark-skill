@@ -40,7 +40,7 @@ function TopicNode({ node, active }) {
         ? html`<button type="button" class="tree-caret" aria-label=${(open ? 'Collapse ' : 'Expand ') + node.name}
             onClick=${() => toggle(node.path, !open)}><${Icon} name=${open ? 'chevron-down' : 'chevron-right'} size=${14} /></button>`
         : html`<span class="tree-caret is-leaf"></span>`}
-      <a class="tree-link" href=${topicHref(node.path)} title=${node.path + (node.description ? ' — ' + node.description : '')}>
+      <a class="tree-link" href=${topicHref(node.path)} title=${node.name + '\n' + node.path + (node.description ? '\n' + node.description : '')}>
         <${Icon} name=${topicIconName(node)} size=${15} cls="tree-ico" />
         <span class="tree-name">${node.name}</span>
       </a>
