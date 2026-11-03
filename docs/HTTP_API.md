@@ -1,0 +1,84 @@
+# HTTP API
+
+Served by `earmark ui` on `http://127.0.0.1:7477`. JSON in and out. Every response body is the
+envelope from `contracts/envelope.schema.json`: `{contract_version, ok, data, error, meta}`.
+The HTTP status mirrors the error code: `invalid_request` 400, `forbidden` 403,
+`not_found` 404, `conflict` 409, `busy` 503, everything else 500.
+
+Requests act as the board owner. Every non-GET request must send `X-Earmark: 1` and
+`Content-Type: application/json`; the server rejects a `Host` other than
+`127.0.0.1:<port>` or `localhost:<port>` and sends no CORS headers.
+
+## Shapes
+
+`IssueSummary` (lists):
+
+```json
+{"key": "GAME-42", "id": 42, "title": "Eye color widget resets on reload",
+ "status": "in_progress", "priority": "high", "type": "bug",
+ "topic": "ui-ux/character-menu/face-layer/eye-color", "assignee": "claude-ui",
+ "reviewer": null, "reporter": "hector", "labels": ["regression"], "due": "2026-11-07",
+ "parent": "GAME-30", "children": 2, "blocked": false, "stale": false,
+ "lease_until": "2026-11-03T16:05:00Z", "rank": 3072.0, "version": 7,
+ "comment_count": 12, "last_comment_id": 1199,
+ "created_at": "2026-11-03T10:02:11Z", "updated_at": "2026-11-03T14:05:09Z"}
+```
+
+`Issue` (detail) = `IssueSummary` plus `body`, `started_at`, `review_requested_at`,
+`resolved_at`, `children` as a list of `IssueSummary`, and
+`links: {"blocks": [...keys], "blocked_by": [...], "duplicates": [...], "duplicated_by": [...], "relates": [...]}`.
+
+`Comment`:
+
+```json
+{"id": 1190, "issue": "GAME-42", "author": "codex-qa", "kind": "note",
+ "body": "Still resets when switching tabs. @claude-ui", "reply_to": 1187,
+ "mentions": ["claude-ui"], "created_at": "2026-11-03T15:10:44Z", "edited_at": null}
+```
+
+`Topic` (tree node): `{"id", "path", "slug", "name", "icon", "description", "parent_id",
+"position", "archived", "counts": {"open": 9, "total": 31, "by_status": {"todo": 4, ...}},
+"children": [Topic...]}`.
+
+`Agent`: `{"handle", "kind", "profile", "role", "cli", "online", "presence": "active|idle|offline",
+"joined_at", "last_seen", "working": [IssueSummary], "reviewing": [IssueSummary],
+"assigned": [IssueSummary]}`.
+
+`Profile`: `{"slug", "name", "role", "icon", "prompt", "topics": ["ui-ux/character-menu"],
+"version", "created_at", "updated_at", "agents": ["claude-ui"]}`.
+
+`Event`: `{"id", "issue": "GAME-42"|null, "actor", "action", "old", "new", "at"}`.
+
+## Routes
+
+| Method | Path | Body / query | Returns |
+|---|---|---|---|
+| GET | `/api/board` | | `{prefix, owner, settings: {require_review, lease_minutes}, counts: {by_status, open, total}, enums: {statuses, priorities, types, comment_kinds, roles, link_kinds}, version}` |
+| GET | `/api/topics` | `?all=1` includes archived | `[Topic]` roots with children |
+| POST | `/api/topics` | `{path, name?, icon?, description?}` | `Topic` |
+| PATCH | `/api/topics/{id}` | `{name?, icon?, description?, path?, position?, archived?}` | `Topic` |
+| DELETE | `/api/topics/{id}` | | `{deleted: id}` |
+| GET | `/api/issues` | query mirrors `earmark ls`: `topic` (repeatable), `exact`, `status`, `priority`, `type`, `assignee`, `reviewer`, `reporter`, `label` (repeatable), `q`, `due_before`, `overdue`, `updated_since`, `created_since`, `ready`, `blocked`, `stale`, `parent`, `sort`, `desc`, `limit`, `offset` | `{items: [IssueSummary], total, limit, offset}` |
+| POST | `/api/issues` | `{title, body?, topic?, priority?, type?, status?, labels?, due?, parent?, assignee?}` | `Issue` |
+| GET | `/api/issues/{key}` | | `Issue` |
+| PATCH | `/api/issues/{key}` | `{version, title?, body?, topic?, priority?, type?, due?, labels?, parent?}` | `Issue`; 409 with current `Issue` in `error.details` |
+| POST | `/api/issues/{key}/status` | `{status, note?}` | `Issue` |
+| POST | `/api/issues/{key}/assign` | `{assignee: handle\|null}` | `Issue` |
+| POST | `/api/issues/{key}/rank` | `{before?: key, after?: key, top?: true, bottom?: true}` | `Issue` |
+| POST | `/api/issues/{key}/links` | `{kind, target}` | `Issue` |
+| DELETE | `/api/issues/{key}/links` | `{kind, target}` | `Issue` |
+| DELETE | `/api/issues/{key}` | | `{deleted: key}` |
+| GET | `/api/issues/{key}/comments` | `?since=ID&limit=N` | `{items: [Comment], last_id, has_more}` |
+| POST | `/api/issues/{key}/comments` | `{body, kind?, reply_to?}` | `Comment` |
+| PATCH | `/api/comments/{id}` | `{body}` | `Comment` |
+| GET | `/api/issues/{key}/events` | | `[Event]` |
+| GET | `/api/activity` | `?since=EVENT_ID&limit=N` | `{items: [Event], last_id}` newest first |
+| GET | `/api/team` | | `{agents: [Agent]}` |
+| GET | `/api/profiles` | | `[Profile]` |
+| POST | `/api/profiles` | `{slug, name, role, icon?, prompt?, topics?}` | `Profile` |
+| PATCH | `/api/profiles/{slug}` | `{version, name?, role?, icon?, prompt?, topics?}` | `Profile` |
+| DELETE | `/api/profiles/{slug}` | | `{deleted: slug}` |
+| GET | `/api/stream` | Server-Sent Events | `event: change` / `data: {"event_id": N, "comment_id": M}` on every commit by anyone; `: ping` every 25 s |
+
+Static files: `/` serves `ui/index.html`; `/assets/*` serves the rest of `src/earmark/ui/`.
+The UI routes in the hash: `#/` list, `#/board`, `#/issue/GAME-42`, `#/team`, `#/topic/<path>`.
