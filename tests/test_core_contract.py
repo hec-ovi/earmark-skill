@@ -153,6 +153,13 @@ class Contract(BoardCase):
                         kinds)
         self.assertEqual(ui.pending_changes(), len(feed["changed"]) + feed["more"])
         self.check("Check", ui.check())
+        lapsing = self.issue("lapsing")["key"]
+        qa.claim(lapsing)
+        self.clock.advance(minutes=200)
+        board = pm.check(peek=True)  # a pm's feed: its scope's flow too
+        self.check("Check", board)
+        kinds = {c["kind"] for item in board["changed"] for c in item["changes"]}
+        self.assertTrue({"created", "handoff", "stale", "field"} <= kinds, kinds)
         ui.leave(keep=True)
         self.open_as(None).join("worker", handle="claude-ui", cli="other")
         self.open_as(None).join("worker", handle="claude-ui")

@@ -62,6 +62,13 @@ class CheckRenderTests(unittest.TestCase):
             ({"kind": "unblocked", "by_issue": "GAME-31"}, "unblocked (GAME-31 done)"),
             ({"kind": "unblocked", "old": "GAME-31 canceled"}, "unblocked (GAME-31 canceled)"),
             ({"kind": "assigned"}, "new for you"),
+            ({"kind": "created", "by": "codex-api"}, "new issue (codex-api)"),
+            ({"kind": "handoff", "by": "claude-ui"}, "handoff (claude-ui)"),
+            ({"kind": "stale", "by": "claude-ui"}, "stale claim (claude-ui)"),
+            ({"kind": "field", "field": "assignee", "new": "codex-art", "by": "pm"},
+             "assigned to codex-art"),
+            ({"kind": "field", "field": "assignee", "new": None, "by": "pm"}, "unassigned"),
+            ({"kind": "field", "field": "assignee", "by": "pm"}, "assignee changed"),
             ({"kind": "some_new_kind"}, "some new kind"),
         ]
         for change, text in cases:
@@ -80,6 +87,25 @@ class CheckRenderTests(unittest.TestCase):
         self.assertEqual(R.check_parts(item("GAME-1", {"kind": "field", "field": "links"},
                                             {"kind": "assigned", "by": "pm"}, priority="high", blocks_open=2)),
                          ["new for you (assigned by pm)", "high", "blocks:2", "links changed"])
+
+    def test_pm_sample(self):
+        res = feed([
+            item("GAME-21", {"kind": "rejected", "by": "codex-qa"}, {"kind": "review_cap", "by": "codex-qa"}),
+            item("GAME-30", {"kind": "created", "by": "codex-api"}, priority="high"),
+            item("GAME-5", {"kind": "stale", "by": "claude-ui"}),
+            item("GAME-8", {"kind": "approved", "by": "codex-qa"}),
+            item("GAME-12", {"kind": "handoff", "by": "claude-ui"}),
+            item("GAME-15", {"kind": "field", "field": "assignee", "new": "codex-art", "by": "grok-pm"}),
+        ], todo=2, holding=[], role="pm")
+        self.assertEqual(R.render_check(res, day=DAY), contract_block("check: since 14:05:09Z · ready for you: 2"))
+
+    def test_new_issue_leads_with_its_priority_once(self):
+        self.assertEqual(R.check_parts(item("GAME-1", {"kind": "field", "field": "assignee", "new": "w2"},
+                                            {"kind": "created", "by": "w1"}, priority="high")),
+                         ["new issue (w1)", "high", "assigned to w2"])
+        self.assertEqual(R.check_parts(item("GAME-1", {"kind": "created", "by": "w1"},
+                                            {"kind": "assigned", "by": "w1"}, priority="low")),
+                         ["new for you (assigned by w1)", "low", "new issue (w1)"])
 
     def test_lease_warning_and_more(self):
         res = feed([item("GAME-5", comments=1)], holding=[
@@ -157,6 +183,30 @@ class RealCheckTests(CliBoardCase):
         self.assertEqual(self.ok("comment", "1", "on it", as_="w1", hint=True).count("changes for you"), 0)
         env = self.json("check", "--peek", as_="w1")
         self.assertEqual((env["data"]["changed"], env["data"]["holding"][0]["key"]), ([], "GAME-1"))
+
+    def test_a_pm_sees_the_board_move_and_its_wait_wakes(self):
+        """Live-test repro: pm-1 read `nothing new` while SHOP-1 closed and SHOP-2..4 moved."""
+        self.ok("join", "pm", as_="pm-1")
+        self.ok("join", "worker", as_="w1")
+        self.ok("join", "reviewer", as_="r1")
+        for title in ("One", "Two", "Three"):
+            self.ok("new", title, as_="hector")
+        self.ok("check", as_="pm-1")
+        self.ok("claim", "1", as_="w1")
+        self.ok("review", "1", "-m", "ready", as_="w1")
+        self.ok("approve", "1", as_="r1")
+        self.ok("assign", "2", "w1", as_="hector")
+        self.ok("new", "Four", "-p", "high", as_="w1")
+        self.assertEqual(self.ok("check", as_="pm-1").splitlines(), [
+            "check: since 10:02:11Z · ready for you: 2",
+            "GAME-4  new issue (w1) · high",
+            "GAME-1  handoff (w1) · approved (r1)",
+            "GAME-2  assigned to w1"])
+        self.assertEqual(self.ok("check", as_="w1").splitlines()[1:], [  # a worker: its own feed
+            "GAME-2  new for you (assigned by hector) · medium", "GAME-1  approved (r1) · 1 new comment"])
+        self.ok("cancel", "3", "-m", "dropped", as_="hector")
+        self.assertEqual(self.ok("wait", "--for", "changes", "--timeout", "1s", as_="pm-1"),
+                         "wait: changes · 1 for you: earmark check\n")
 
     def test_a_comment_next_or_show_new_printed_is_not_reported_again(self):
         self.ok("join", "worker", as_="w1")

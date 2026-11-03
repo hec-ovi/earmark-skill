@@ -367,5 +367,113 @@ class Feed(BoardCase):
         self.assertEqual(kinds(by_key(legacy.check())[key]), ["field"])
 
 
+class PmFeed(BoardCase):
+    """A pm watches its scope: the live test's pm-1 read `nothing new` while SHOP-1 closed and
+    SHOP-2..4 moved, and its `wait --for any` slept through the last two closes."""
+
+    def setUp(self):
+        super().setUp()
+        b = self.board
+        b.add_topic("api")
+        b.add_topic("art")
+        b.config("max_review_rounds", "1")
+        self.w1 = self.agent("w1", cli="claude-code")
+        self.w2 = self.agent("w2", cli="codex")
+        self.qa = self.agent("qa", "reviewer", cli="codex")
+        self.pm = self.agent("pm-1", "pm", cli="grok")
+        self.keys = [self.issue(f"i{n}", topic="api")["key"] for n in range(6)]
+
+    def test_the_whole_board_in_one_line_per_issue(self):
+        b, w1, qa, pm = self.board, self.w1, self.qa, self.pm
+        closed, handed, assigned, canceled, capped, lapsed = self.keys
+        for key in (closed, capped):
+            w1.claim(key)
+            w1.submit_review(key, note="ready")
+        pm.check()
+        qa.claim(closed)
+        qa.approve(closed)
+        w1.claim(handed)
+        w1.submit_review(handed, note="ready")
+        b.assign(assigned, "w2")
+        b.cancel(canceled, note="not needed")
+        qa.claim(capped)
+        qa.reject(capped, note="still broken")
+        self.w2.claim(lapsed)
+        new = self.w2.create_issue("found a bug", topic="art", priority="high")["key"]
+        self.clock.advance(minutes=121)
+        self.assertEqual(pm.pending_changes(), 7)
+        feed = pm.check(peek=True)
+        items = by_key(feed)
+        self.assertEqual(set(items), {closed, handed, assigned, canceled, capped, lapsed, new})
+        self.assertEqual(items[closed]["changes"], [{"kind": "approved", "by": "qa"}])
+        self.assertEqual(items[handed]["changes"], [{"kind": "handoff", "by": "w1"}])  # one second
+        self.assertEqual(items[assigned]["changes"],
+                         [{"kind": "field", "field": "assignee", "new": "w2", "by": "owner"}])
+        self.assertEqual(items[canceled]["changes"],
+                         [{"kind": "status", "old": "todo", "new": "canceled", "by": "owner"}])
+        self.assertEqual(kinds(items[capped]), ["rejected", "review_cap"])
+        self.assertEqual(kinds(items[lapsed]), ["status", "stale"])
+        self.assertEqual(items[lapsed]["changes"][-1], {"kind": "stale", "by": "w2"})
+        self.assertEqual(items[new]["changes"], [{"kind": "created", "by": "w2"}])
+        # only the exhausted review needs the pm; the rest is the board's flow
+        self.assertEqual([c["key"] for c in feed["changed"] if c["action"]], [capped])
+        self.assertEqual(feed["changed"][0]["key"], capped)
+        self.assertEqual(pm.check()["changed"], feed["changed"])
+        again = pm.check()  # nothing moved: the lapsed lease is not news twice
+        self.assertEqual((again["changed"], pm.pending_changes()), ([], 0))
+        self.assertEqual(again["since"], "2026-11-03T11:01:00Z")
+
+    def test_workers_and_reviewers_keep_their_own_feed(self):
+        b, w1, qa = self.board, self.w1, self.qa
+        w1.check()
+        qa.check()
+        b.move(self.keys[0], "canceled")
+        self.w2.claim(self.keys[1])
+        self.w2.create_issue("new", topic="api")
+        self.assertEqual((w1.pending_changes(), qa.pending_changes()), (0, 0))
+        self.assertEqual((w1.check()["changed"], qa.check()["changed"]), ([], []))
+
+    def test_a_scoped_pm_watches_its_subtrees_only(self):
+        b = self.board
+        b.add_profile("art-pm", name="Art PM", role="pm", topics=["art"])
+        art_pm = self.agent("pm-art", "art-pm")
+        self.pm.check()
+        art = self.issue("sprite", topic="art")["key"]
+        loose = self.issue("no topic")["key"]
+        self.w1.claim(self.keys[0])
+        self.w1.claim(art)
+        self.assertEqual(set(by_key(art_pm.check(peek=True))), {art})
+        self.assertEqual(art_pm.pending_changes(), 1)
+        self.assertEqual(set(by_key(self.pm.check(peek=True))), {art, loose, self.keys[0]})
+        self.assertEqual(self.pm.pending_changes(), 3)  # unscoped: the whole board
+
+    def test_the_10_line_cap(self):
+        self.pm.check()
+        for n in range(12):
+            self.w1.create_issue(f"new {n}", topic="api")
+        feed = self.pm.check()
+        self.assertEqual((len(feed["changed"]), feed["more"]), (10, 2))
+
+    def test_wait_wakes_on_scope_changes_and_lapsing_leases(self):
+        b, pm = self.board, self.pm
+        pm.check()
+        self.assertIsNone(pm.wait_check("changes"))
+        self.assertIsNone(pm.wait_wake_in("changes"))  # no lease running
+        b.move(self.keys[0], "done")
+        self.assertEqual(pm.wait_check("changes"), {"reason": "changes", "count": 1})
+        self.assertEqual(pm.wait_check("any")["reason"], "changes")
+        pm.check()
+        self.w1.claim(self.keys[1])
+        pm.check()
+        self.assertEqual(pm.wait_wake_in("changes"), 120 * 60 + 1)
+        self.assertEqual(self.w2.wait_wake_in("work"), 120 * 60 + 1)  # next could take it over
+        self.assertIsNone(self.w2.wait_wake_in("changes"))  # a worker's feed has no lapses
+        self.assertIsNone(self.w1.wait_wake_in("work"))  # its own lease
+        self.clock.advance(minutes=100)
+        self.assertEqual(pm.wait_wake_in("any"), 20 * 60 + 1)
+        self.clock.advance(minutes=20, seconds=1)
+        self.assertEqual(pm.wait_check("changes"), {"reason": "changes", "count": 1})
+
+
 if __name__ == "__main__":
     unittest.main()

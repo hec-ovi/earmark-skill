@@ -65,11 +65,23 @@ class WaitTests(unittest.TestCase):
         self.assertEqual(len(boards[0].called("wait_check")), 1)
         self.assertGreaterEqual(len(boards[0].called("data_version")), 3)
         self.assertEqual([c for c in boards[0].calls if c[0] not in
-                          ("open", "touch", "data_version", "wait_check")], [], "read-only loop")
+                          ("open", "touch", "data_version", "wait_check", "wait_wake_in")], [],
+                         "read-only loop")
         with fake_board(wait_check=None):
             code, out, _ = run_main(["wait", "--timeout", "0", "--json", "--as", "w-1"])
         env = json.loads(out)
         self.assertEqual((code, env["error"]["code"], env["error"]["details"]["mode"]), (4, "empty", "any"))
+
+    def test_checks_again_when_a_lease_lapses_without_a_write(self):
+        """A lapsed claim writes nothing: wait asks when the next lease ends and checks then."""
+        checks = iter([None, {"reason": "changes", "count": 1}])
+        with fake_board(data_version=1, wait_check=lambda mode: next(checks),
+                        wait_wake_in=lambda mode: 0.05) as boards:
+            code, out, _ = run_main(["wait", "--for", "changes", "--interval", "0.01",
+                                     "--timeout", "5s", "--as", "pm-1"])
+        self.assertEqual((code, out), (0, "wait: changes · 1 for you: earmark check\n"))
+        self.assertEqual(len(boards[0].called("wait_check")), 2)
+        self.assertEqual(boards[0].called("wait_wake_in"), [(("changes",), {})])
 
     def test_inbox_is_the_old_name_of_changes(self):
         with fake_board(wait_check=None) as boards:
