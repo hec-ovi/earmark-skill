@@ -391,7 +391,7 @@
 
     "Check": {
       "type": "object",
-      "description": "The actor's change feed (earmark check): only what others changed since its previous check or join, on issues it is assignee or reviewer of, issues assigned to it or taken from it, and comments anywhere that mention it. since: the previous check or join. changed: at most 10, those needing action first, then effective priority, then key; more counts the rest. cursor: the stored cursor after the call (advanced to the heads read at the start, unchanged with peek). pending_changes() is len(changed) + more without reading or writing anything else.",
+      "description": "The actor's change feed (earmark check): only what others changed since its previous check or join, on issues it is assignee or reviewer of, issues assigned to it or taken from it, and comments anywhere that mention it; an event only when it is newer than the actor's own last write on that issue. For a pm, also every issue in its profile's scope (whole board when unscoped): new issues, status moves, assignments, handoffs, review outcomes and caps, takeovers, and claims whose lease ran out since its previous check. since: the previous check or join. changed: at most 10, those needing action first, then effective priority, then key; more counts the rest. cursor: the stored cursor after the call (advanced to the heads read at the start, unchanged with peek). pending_changes() is len(changed) + more without reading or writing anything else.",
       "required": ["agent", "role", "since", "holding", "ready_for_you", "waiting_on_blockers",
                    "reviews_waiting", "todo_for_you", "changed", "more", "cursor"],
       "additionalProperties": false,
@@ -432,7 +432,7 @@
 
     "CheckIssue": {
       "type": "object",
-      "description": "One changed issue as kinds of change and counts, never content. comments: new comments by others; questions: those of kind question or mentioning the actor; files: files others attached. action: assigned, rejected, unblocked, review_cap, takeover, or a question.",
+      "description": "One changed issue as kinds of change and counts, never content. comments: new comments by others; questions: those of kind question or mentioning the actor; files: files others attached. action: assigned, rejected, unblocked, review_cap, takeover, or a question; on the issues a pm watches only for its scope (not its own), only review_cap.",
       "required": ["key", "priority", "effective_priority", "blocks_open", "action", "changes",
                    "comments", "questions", "files"],
       "additionalProperties": false,
@@ -451,12 +451,12 @@
 
     "CheckChange": {
       "type": "object",
-      "description": "One kind of change, oldest first, by = who made it. status: first old and last new status since the cursor (left out when the same write is a reject, approve, unblock, review cap, takeover or assignment). unblocked: by_issue resolved the blocker. takeover: by took the actor's stale claim. field: field changed (old/new only for priority); links covers link and unlink.",
+      "description": "One kind of change, oldest first, by = who made it. status: first old and last new status since the cursor (left out when the same write is a reject, approve, unblock, review cap, takeover, handoff or assignment). unblocked: by_issue resolved the blocker. takeover: by took the actor's stale claim. created: by filed the issue; handoff: by sent it to review; stale: by's claim lease ran out (pm feed only). field: field changed (old/new for priority, new for assignee: null when unassigned); links covers link and unlink.",
       "required": ["kind", "by"],
       "additionalProperties": false,
       "properties": {
         "kind": { "enum": ["assigned", "unassigned", "status", "rejected", "approved", "unblocked",
-                           "review_cap", "takeover", "field"] },
+                           "review_cap", "takeover", "field", "created", "handoff", "stale"] },
         "by": { "$ref": "#/$defs/Handle" },
         "old": { "type": ["string", "null"] },
         "new": { "type": ["string", "null"] },

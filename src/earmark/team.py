@@ -78,8 +78,47 @@ CHECK_EVENTS_SQL = _union(CHECK_EVENTS_MINE + CHECK_EVENTS_NAMING, _EVENT_COLS,
                           " AND e.id <= :evh") + " ORDER BY 1"
 CHECK_COMMENTS_SQL = _union(CHECK_COMMENTS_MINE + CHECK_COMMENTS_MENTIONING, _COMMENT_COLS,
                             " AND c.id <= :cmh") + " ORDER BY 1"
+# A pm watches the board: on top of its own feed, the flow of every issue in its profile's scope
+# (whole board when unscoped): new issues, status moves (claims, handoffs, closes, reopens),
+# assignments, review outcomes and caps, takeovers (index seeks per action past the cursor), and
+# claims whose lease ran out since its last check (time, not an event: lease in [since, now)).
+PM_ACTIONS = ("created", "status", "assignee", "review", "approve", "reject", "review_cap",
+              "unblocked", "takeover")
+CHECK_EVENTS_SCOPE = (
+    "SELECT {cols} FROM events e INDEXED BY events_action CROSS JOIN issues i ON i.id = e.issue_id "
+    f"WHERE e.action IN ({', '.join(repr(a) for a in PM_ACTIONS)}) AND e.id > :ev{{upto}} "
+    f"AND e.actor <> :me AND {_NOT_SEEN} AND <scope>")
+_HOLDER = "CASE i.status WHEN 'in_progress' THEN i.assignee ELSE i.reviewer END"
+CHECK_STALE_SCOPE = (
+    f"SELECT {{cols}} FROM issues i WHERE i.status IN ('in_progress', 'in_review') AND "
+    f"i.lease_until >= :since AND i.lease_until < :now AND coalesce({_HOLDER}, :me) <> :me "
+    f"AND <scope>")
+_STALE_COLS = f"i.id AS issue_id, {_HOLDER} AS holder"
+
+
+def _scope_sql(paths: list[str]) -> tuple[str, dict]:
+    """Named-parameter twin of service.subtree_sql over i.topic_id: (sql, params)."""
+    if not paths:
+        return "1", {}
+    params: dict = {}
+    terms = []
+    for n, path in enumerate(paths):
+        params[f"s{n}"], params[f"l{n}"] = path, path + "/%"
+        terms.append(f"(t.path = :s{n} OR t.path LIKE :l{n})")
+    return f"i.topic_id IN (SELECT t.id FROM topics t WHERE {' OR '.join(terms)})", params
+
+
+def _pm_pending_sql(scope: str) -> str:
+    events = CHECK_EVENTS_MINE + CHECK_EVENTS_NAMING + [CHECK_EVENTS_SCOPE.replace("<scope>", scope)]
+    return "SELECT count(*) FROM ({} UNION {} UNION {})".format(
+        _union(events, "e.issue_id", ""),
+        _union(CHECK_COMMENTS_MINE + CHECK_COMMENTS_MENTIONING, "c.issue_id", ""),
+        CHECK_STALE_SCOPE.replace("<scope>", scope).format(cols="i.id"))
+
+
 # kinds that say why a write happened; the status move of the same write is not repeated
-_SEMANTIC = ("assigned", "unassigned", "rejected", "approved", "unblocked", "review_cap", "takeover")
+_SEMANTIC = ("assigned", "unassigned", "rejected", "approved", "unblocked", "review_cap", "takeover",
+             "handoff")
 _ACTION_KINDS = ("assigned", "rejected", "unblocked", "review_cap", "takeover")
 _FIELDS = {"title": "title", "body": "body", "priority": "priority", "type": "type",
            "topic": "topic", "due": "due", "labels": "labels", "parent": "parent",
@@ -445,15 +484,20 @@ class TeamMixin:
                 ev, cm, since = cursor[0], cursor[1], cursor[2]
             params = {"me": me, "ev": ev, "cm": cm, "evh": heads["event_id"],
                       "cmh": heads["comment_id"]}
-            per = self._check_changes(conn, me, params)
-            ranked = self._check_ranked(conn, per)
+            scope = self._pm_scope(conn, agent)
+            if scope is not None:
+                params.update(scope[1], since=since, now=now_ts)
+            per = self._check_changes(conn, me, params, None if scope is None else scope[0])
+            lapsed = any(c["kind"] == "stale" for item in per.values() for c in item["changes"])
+            ranked = self._check_ranked(conn, me, per, pm=scope is not None)
             holding = [{"key": self._key(r[0]), "lease_until": r[1],
                         "lease_left_min": _minutes_left(r[1], now)} for r in conn.execute(
                 "SELECT id, lease_until FROM issues WHERE (assignee = ? AND status = 'in_progress') "
                 "OR (reviewer = ? AND status = 'in_review') ORDER BY lease_until, id", (me, me))]
             counts = self._check_counts(conn, agent, now_ts)
         position = {"event_id": ev, "comment_id": cm}
-        moved = cursor is None or (ev, cm) != (heads["event_id"], heads["comment_id"])
+        # a lapsed lease is news once: the cursor's time moves past it even when no id did
+        moved = cursor is None or lapsed or (ev, cm) != (heads["event_id"], heads["comment_id"])
         if not peek:
             if moved:
                 self._advance_check(me, heads, now_ts)
@@ -482,30 +526,55 @@ class TeamMixin:
                                        "todo_for_you")}
 
     def pending_changes(self) -> int:
-        """How many issues `check` would list now (read-only: two indexed queries, no write).
-        0 without an actor or a check cursor. The CLI prints the dirty hint from it."""
+        """How many issues `check` would list now (read-only: two indexed queries, no write;
+        a pm's adds its scope's events and lapsed leases). 0 without an actor or a check
+        cursor. The CLI prints the dirty hint from it."""
         me = self.actor
         if not me:
             return 0
-        row = self.conn.execute("SELECT last_event_id, last_comment_id FROM cursors "
-                                "WHERE agent = ? AND scope = 'check'", (me,)).fetchone()
+        row = self.conn.execute(
+            "SELECT c.last_event_id, c.last_comment_id, c.updated_at, p.role, a.profile "
+            "FROM cursors c JOIN agents a ON a.handle = c.agent LEFT JOIN profiles p "
+            "ON p.slug = a.profile WHERE c.agent = ? AND c.scope = 'check'", (me,)).fetchone()
         if row is None:
             return 0
-        return self.conn.execute(PENDING_SQL, {"me": me, "ev": row[0], "cm": row[1]}).fetchone()[0]
+        params = {"me": me, "ev": row[0], "cm": row[1]}
+        if row[3] != "pm":
+            return self.conn.execute(PENDING_SQL, params).fetchone()[0]
+        scope, extra = _scope_sql(self._scope_paths(self.conn, row[4]))
+        params.update(extra, since=row[2], now=timeutil.now_iso())
+        return self.conn.execute(_pm_pending_sql(scope), params).fetchone()[0]
 
-    def _check_changes(self, conn, me: str, params: dict) -> dict:
-        """{issue_id: {changes, comments, questions, files}} from the feed's rows."""
+    def _pm_scope(self, conn, agent) -> tuple[str, dict] | None:
+        """(sql, params) over i.topic_id of what a pm watches; None for every other role."""
+        if agent["role"] != "pm":
+            return None
+        return _scope_sql(self._scope_paths(conn, agent["profile"]))
+
+    def _check_changes(self, conn, me: str, params: dict, scope: str | None = None) -> dict:
+        """{issue_id: {changes, comments, questions, files, _named}} from the feed's rows;
+        scope (a pm's) adds its scope's events and lapsed leases. _named: an assignment change
+        named the agent (the issue is its business even when it holds it no more)."""
         per: dict[int, dict] = {}
 
         def entry(issue_id: int) -> dict:
             return per.setdefault(issue_id, {"changes": [], "comments": 0, "questions": 0,
-                                             "files": 0, "_status": None, "_fields": {}})
+                                             "files": 0, "_status": None, "_fields": {},
+                                             "_named": False})
 
+        sql = CHECK_EVENTS_SQL
+        if scope is not None:
+            sql = _union(CHECK_EVENTS_MINE + CHECK_EVENTS_NAMING +
+                         [CHECK_EVENTS_SCOPE.replace("<scope>", scope)], _EVENT_COLS,
+                         " AND e.id <= :evh") + " ORDER BY 1"
         writes: dict[tuple, list] = {}
-        for row in conn.execute(CHECK_EVENTS_SQL, params):
+        for row in conn.execute(sql, params):
             writes.setdefault((row["issue_id"], row["actor"], row["at"]), []).append(row)
         for (issue_id, _actor, _at), rows in writes.items():
             item = entry(issue_id)
+            item["_named"] = item["_named"] or any(
+                r["action"] in ("assignee", "takeover", "release") and me in (r["old"], r["new"])
+                for r in rows)
             kinds = [self._check_kind(me, r) for r in rows]
             semantic = any(k and k["kind"] in _SEMANTIC for k in kinds)
             for row, kind in zip(rows, kinds):
@@ -535,6 +604,10 @@ class TeamMixin:
             item["comments"] += 1
             if row["kind"] == "question" or row["mentioned"]:
                 item["questions"] += 1
+        if scope is not None:
+            stale = CHECK_STALE_SCOPE.replace("<scope>", scope).format(cols=_STALE_COLS)
+            for row in conn.execute(stale + " ORDER BY 1", params):
+                entry(row["issue_id"])["changes"].append({"kind": "stale", "by": row["holder"]})
         for item in per.values():
             del item["_status"], item["_fields"]
         return per
@@ -544,10 +617,16 @@ class TeamMixin:
         action, by, old, new = row["action"], row["actor"], row["old"], row["new"]
         if action == "status":
             return {"kind": "status", "old": old, "new": new, "by": by}
+        if action == "created":
+            return {"kind": "created", "by": by}
+        if action == "review":
+            return {"kind": "handoff", "by": by}
         if action == "assignee" and new == me:
             return {"kind": "assigned", "by": by}
         if action == "assignee" and old == me or action == "release":
             return {"kind": "unassigned", "by": by}
+        if action == "assignee":
+            return {"kind": "field", "field": "assignee", "new": new, "by": by}
         if action == "takeover":
             return {"kind": "takeover", "by": new or by}
         if action == "reject":
@@ -564,13 +643,18 @@ class TeamMixin:
             return {"kind": "field", "field": _FIELDS[action], "by": by}
         return None
 
-    def _check_ranked(self, conn, per: dict) -> list[dict]:
+    def _check_ranked(self, conn, me: str, per: dict, *, pm: bool = False) -> list[dict]:
+        """Ranked entries. action: a question for it, or an assignment, reject, unblock,
+        takeover or review cap on its business; on a pm's scope-wide entries only a review cap
+        (the owner or a pm decides) is action."""
         if not per:
             return []
         ids = list(per)
         marks = ",".join("?" * len(ids))
-        own = {r[0]: r[1] for r in conn.execute(
-            f"SELECT id, priority FROM issues WHERE id IN ({marks})", ids)}
+        own, seats = {}, {}
+        for r in conn.execute(f"SELECT id, priority, assignee, reviewer FROM issues "
+                              f"WHERE id IN ({marks})", ids):
+            own[r[0]], seats[r[0]] = r[1], (r[2], r[3])
         holds = {r[0]: (r[1], r[2]) for r in conn.execute(
             f"SELECT k.src, min(b.priority), count(*) FROM links k JOIN issues b ON b.id = k.dst "
             f"JOIN issues s ON s.id = k.src WHERE k.kind = 'blocks' AND b.status NOT IN "
@@ -581,7 +665,11 @@ class TeamMixin:
             priority = own[issue_id]
             held, blocks_open = holds.get(issue_id, (4, 0))
             effective = min(priority, held)
-            action = item["questions"] > 0 or any(c["kind"] in _ACTION_KINDS for c in item["changes"])
+            named = item.pop("_named", False)
+            mine = not pm or named or me in seats[issue_id]
+            action = item["questions"] > 0 or any(
+                c["kind"] == "review_cap" or (mine and c["kind"] in _ACTION_KINDS)
+                for c in item["changes"])
             out.append(((not action, effective, issue_id), {
                 "key": self._key(issue_id), "priority": model.priority_name(priority),
                 "effective_priority": model.priority_name(effective), "blocks_open": blocks_open,
@@ -602,6 +690,28 @@ class TeamMixin:
                 "last_event_id = max(cursors.last_event_id, excluded.last_event_id), "
                 "updated_at = excluded.updated_at",
                 (me, heads["comment_id"], heads["event_id"], ts))
+
+    def wait_wake_in(self, mode: str) -> float | None:
+        """Seconds until the next live lease in the actor's scope (held by someone else) runs
+        out, plus one: a lapsed claim is news in a pm's feed and claimable by `next`, yet nothing
+        is written when it lapses, so `earmark wait` checks again then. None when no lease is
+        running, or for a changes wait by anyone but a pm. Read-only."""
+        mode = str(mode or "any").strip().lower()
+        mode = WAIT_ALIASES.get(mode, mode)
+        me = self._need_actor()
+        now = timeutil.now()
+        with self._read() as conn:
+            agent = self._actor_row(conn)
+            if mode == "changes" and agent["role"] != "pm":
+                return None
+            where, params = self._scope_where(conn, agent, [])
+            lease = conn.execute(
+                f"SELECT min(i.lease_until) FROM {views.ISSUE_FROM} WHERE i.status IN "
+                f"('in_progress', 'in_review') AND i.lease_until >= ? AND coalesce({_HOLDER}, ?) "
+                f"<> ? AND {where}", [timeutil.iso(now), me, me, *params]).fetchone()[0]
+        if not lease:
+            return None
+        return max(0.0, (timeutil.parse_iso(lease) - now).total_seconds()) + 1.0
 
     def wait_check(self, mode: str) -> dict | None:
         """mode work|review|changes|any (inbox: an alias of changes). Read-only. Returns
