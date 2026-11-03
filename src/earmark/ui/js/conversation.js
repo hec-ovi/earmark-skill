@@ -3,10 +3,11 @@
 import { html, useState, useRef, useEffect } from './lib.js';
 import { state, set, mutate, loadDetail, toast } from './state.js';
 import { enc } from './api.js';
-import { Icon, Avatar, KindBadge, Age, agentOf, Kbd, RoleBadge, PriorityIcon, StatusIcon } from './components.js';
+import { Icon, IconButton, Avatar, KindBadge, Age, agentOf, Kbd, RoleBadge, PriorityIcon, StatusIcon } from './components.js';
+import { AttachmentGallery, uploadFiles, pickFiles } from './attachments.js';
 import { renderMarkdown, excerpt } from './markdown.js';
 import { KIND, COMPOSER_KINDS, eventText, EVENT_ICON, PRIORITY, STATUS } from './meta.js';
-import { cx, copyText, absTime, store, age } from './util.js';
+import { cx, copyText, absTime, store, age, formatBytes } from './util.js';
 import { mdClick } from './components.js';
 
 const WORKFLOW = new Set(['claim', 'release', 'takeover', 'review', 'approve', 'reject', 'reopen']);
@@ -15,6 +16,9 @@ export function Conversation({ issue, d }) {
   const [replyTo, setReplyTo] = useState(null);
   const comments = d.comments || [];
   const byId = new Map(comments.map((c) => [c.id, c]));
+  // issue.attachments is refreshed on every issue load, so it is the fresher source per comment
+  const attByComment = new Map();
+  (issue.attachments || []).forEach((a) => { if (a.comment_id) attByComment.set(a.comment_id, [...(attByComment.get(a.comment_id) || []), a]); });
   const showActivity = state.showActivity;
   const entries = comments.map((c) => ({ at: c.created_at, c }));
   if (showActivity) {
@@ -41,7 +45,7 @@ export function Conversation({ issue, d }) {
     </div>
     <ol class="thread" onClick=${mdClick}>
       ${entries.map((x) => (x.c
-        ? html`<${Comment} key=${'c' + x.c.id} c=${x.c} issue=${issue} parent=${x.c.reply_to ? byId.get(x.c.reply_to) : null} onReply=${reply} fresh=${d.fresh && d.fresh.has(x.c.id)} />`
+        ? html`<${Comment} key=${'c' + x.c.id} c=${x.c} issue=${issue} atts=${issue.attachments ? attByComment.get(x.c.id) || [] : x.c.attachments || []} parent=${x.c.reply_to ? byId.get(x.c.reply_to) : null} onReply=${reply} fresh=${d.fresh && d.fresh.has(x.c.id)} />`
         : html`<${EventRow} key=${'e' + x.e.id} e=${x.e} />`))}
       ${!entries.length ? html`<li class="thread-empty">No comments yet. Agents post progress, questions and handoffs here.</li>` : null}
     </ol>
@@ -49,12 +53,13 @@ export function Conversation({ issue, d }) {
   </section>`;
 }
 
-function Comment({ c, issue, parent, onReply, fresh }) {
+function Comment({ c, issue, parent, onReply, fresh, atts }) {
   const a = agentOf(c.author);
   const owner = state.board && state.board.owner === c.author;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(c.body);
   const prefix = state.board ? state.board.prefix : null;
+  const uploads = state.uploads.filter((u) => u.comment === c.id);
   const copyCursor = async () => {
     const cmd = `earmark comments ${issue.key} --since ${c.id}`;
     if (await copyText(cmd)) toast({ kind: 'success', title: 'Copied', body: cmd });
@@ -99,6 +104,7 @@ function Comment({ c, issue, parent, onReply, fresh }) {
               <button type="button" class="btn btn-sm btn-primary" onClick=${save}>Save</button></div>
           </div>`
         : html`<div class="md comment-body" dangerouslySetInnerHTML=${{ __html: renderMarkdown(c.body, { prefix }) }}></div>`}
+      ${atts.length || uploads.length ? html`<${AttachmentGallery} items=${atts} uploads=${uploads} compact />` : null}
     </div>
   </li>`;
 }
@@ -118,6 +124,7 @@ function Composer({ issue, replyTo, clearReply }) {
   const [body, setBody] = useState('');
   const [kind, setKind] = useState('note');
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState([]);
   const ta = useRef(null);
   useEffect(() => {
     const el = ta.current;
@@ -125,18 +132,42 @@ function Composer({ issue, replyTo, clearReply }) {
     el.style.height = 'auto';
     el.style.height = Math.min(320, Math.max(72, el.scrollHeight)) + 'px';
   }, [body]);
+  useEffect(() => () => files.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);
+  const addFiles = (list) => {
+    const next = list.filter(Boolean).map((file) => ({ file, id: Math.random().toString(36).slice(2), url: file.type.startsWith('image/') ? safeObjectURL(file) : null }));
+    if (next.length) setFiles((cur) => [...cur, ...next]);
+  };
+  const removeFile = (id) => setFiles((cur) => cur.filter((f) => { if (f.id === id && f.url) URL.revokeObjectURL(f.url); return f.id !== id; }));
+  const onPaste = (e) => {
+    const items = [...((e.clipboardData && e.clipboardData.files) || [])];
+    if (!items.length) return;
+    e.preventDefault();
+    addFiles(items.map((f, i) => (f.name && f.name !== 'image.png' ? f : renamed(f, i))));
+  };
   const send = async () => {
     const text = body.trim();
-    if (!text || busy) return;
+    if ((!text && !files.length) || busy) return;
     setBusy(true);
-    const res = await mutate('POST', `/issues/${enc(issue.key)}/comments`, { body: text, kind, reply_to: replyTo ? replyTo.id : undefined });
-    setBusy(false);
-    if (res) {
-      setBody('');
-      clearReply();
-      setKind('note');
-      loadDetail(issue.key, { incremental: true });
+    const pending = files.map((f) => f.file);
+    let ok = true;
+    if (text) {
+      const res = await mutate('POST', `/issues/${enc(issue.key)}/comments`, { body: text, kind, reply_to: replyTo ? replyTo.id : undefined });
+      ok = !!res;
+      if (res) {
+        setBody('');
+        clearReply();
+        setKind('note');
+        loadDetail(issue.key, { incremental: true });
+        if (pending.length) uploadFiles(issue.key, pending, { comment: res.id });
+      }
+    } else {
+      uploadFiles(issue.key, pending);
     }
+    if (ok) {
+      files.forEach((f) => f.url && URL.revokeObjectURL(f.url));
+      setFiles([]);
+    }
+    setBusy(false);
   };
   const mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
   return html`<div class="composer" onKeyDown=${(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }}>
@@ -146,18 +177,36 @@ function Composer({ issue, replyTo, clearReply }) {
       <button type="button" class="icon-btn is-xs" aria-label="Cancel reply" onClick=${clearReply}><${Icon} name="x" size=${12} /></button>
     </div>` : null}
     <textarea ref=${ta} class="textarea composer-input" value=${body} rows="3"
-      placeholder=${replyTo ? `Reply to ${replyTo.author}…` : 'Write a comment… @mention an agent to reach its inbox'}
-      aria-label="Comment" onInput=${(e) => setBody(e.target.value)}
+      placeholder=${replyTo ? `Reply to ${replyTo.author}…` : 'Write a comment… @mention an agent to reach its inbox, paste a screenshot'}
+      aria-label="Comment" onInput=${(e) => setBody(e.target.value)} onPaste=${onPaste}
       onKeyDown=${(e) => { if (e.key === 'Escape') { e.stopPropagation(); e.target.blur(); } }}></textarea>
+    ${files.length ? html`<div class="composer-files">${files.map((f) => html`<span class="pending" key=${f.id} title=${f.file.name}>
+      ${f.url ? html`<img src=${f.url} alt="" onError=${(e) => { e.currentTarget.hidden = true; }} />` : html`<${Icon} name="file" size=${14} />`}
+      <span class="pending-name">${f.file.name}</span><span class="pending-size">${formatBytes(f.file.size)}</span>
+      <button type="button" class="chip-x" aria-label=${'Remove ' + f.file.name} onClick=${() => removeFile(f.id)}><${Icon} name="x" size=${12} /></button>
+    </span>`)}</div>` : null}
     <div class="composer-bar">
       <div class="seg seg-sm" role="radiogroup" aria-label="Comment kind">
         ${COMPOSER_KINDS.map((k) => html`<button type="button" role="radio" aria-checked=${String(kind === k)} key=${k}
           class=${cx('seg-btn', 'kind-' + k, kind === k && 'is-on')} onClick=${() => setKind(k)} title=${KIND[k].label}>
           <${Icon} name=${KIND[k].icon} size=${13} /><span>${KIND[k].label}</span></button>`)}
       </div>
+      <${IconButton} icon="paperclip" size=${15} label="Attach files to this comment" onClick=${() => pickFiles(addFiles)} />
       <span class="composer-hint"><${Kbd}>${mac ? '⌘' : 'Ctrl'}</${Kbd}><${Kbd}>Enter</${Kbd}></span>
-      <button type="button" class="btn btn-primary btn-sm" disabled=${!body.trim() || busy} onClick=${send}>
-        <${Icon} name="send" size=${13} />Comment</button>
+      <button type="button" class="btn btn-primary btn-sm" disabled=${(!body.trim() && !files.length) || busy} onClick=${send}
+        title=${!body.trim() && files.length ? 'Attach the files to the issue' : 'Post the comment'}>
+        <${Icon} name=${!body.trim() && files.length ? 'paperclip' : 'send'} size=${13} />${!body.trim() && files.length ? 'Attach' : 'Comment'}</button>
     </div>
   </div>`;
+}
+
+function safeObjectURL(file) {
+  try { return URL.createObjectURL(file); } catch (e) { return null; }
+}
+
+/** Pasted screenshots arrive as "image.png"; give them a sortable, unique name. */
+function renamed(file, i) {
+  const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '');
+  try { return new File([file], `pasted-${stamp}${i ? '-' + i : ''}.${ext}`, { type: file.type }); } catch (e) { return file; }
 }
