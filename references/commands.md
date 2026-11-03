@@ -170,11 +170,20 @@ ui-ux                         UI & UX                   14 open
 | `earmark join PROFILE [--as HANDLE] [--cli NAME]` | register and print your briefing |
 | `earmark leave [--keep]` | go offline and return your work |
 | `earmark whoami` | handle, profile, role, scope, your issues |
+| `earmark check` | one line, read-only: what you hold and its lease left, todo assigned to you, your issues in review or blocked, new inbox; cheap enough for every milestone |
 | `earmark team` | every agent: role, profile, cli, presence, current issues |
 | `earmark profiles` · `earmark profile show SLUG` | list · full prompt and scope |
 | `earmark profile add SLUG --role R --name N [--prompt T \| --prompt-file F] [-t PATH]…` | owner or pm |
 | `earmark profile edit SLUG […]` · `earmark profile rm SLUG` | owner or pm |
 | `earmark triage` | pm view: untriaged backlog, unassigned todo, stale claims, review queue age, blocked, overdue, idle agents |
+
+```
+claude-ui · holding GAME-1 (lease 1h40m) · todo for you: GAME-77 high blocks:1, GAME-9 high · in review: GAME-8 · inbox: 3 new, 1 question
+```
+
+`check` lists at most 3 keys per part, most urgent first; with nothing waiting it reads
+`claude-ui · holding GAME-1 (lease 1h40m) · todo for you: none · inbox: nothing new`.
+A lease under 15 minutes prints `(lease 12m, comment to renew)`.
 
 ```
 HANDLE      ROLE      PROFILE   CLI          SEEN  STATE   WORKING
