@@ -899,15 +899,16 @@ class UiSession:
         return proc_io(self.proc.pid)
 
     def close(self) -> None:
-        """Stop the server (Ctrl+C) and reap it with wait4(), whose rusage covers its whole life,
-        including the checkpoint it runs when it closes the last connection."""
+        """Stop the server and reap it with wait4(), whose rusage covers its whole life,
+        including the checkpoint it runs when it closes the last connection. SIGTERM, which
+        `earmark ui` handles like Ctrl+C: a background job of a script inherits SIGINT ignored."""
         self.stop_event.set()
         if self.sock is not None:
             self.sock.close()
             self.sock = None
         if self.proc.returncode is not None:
             return
-        self.proc.send_signal(signal.SIGINT)
+        self.proc.send_signal(signal.SIGTERM)
         started = time.monotonic()
         while True:
             pid, status, ru = os.wait4(self.proc.pid, os.WNOHANG)
@@ -1217,7 +1218,7 @@ def print_soak(res: dict, out) -> None:
         u = d["ui_during_run"]
         print(f"earmark ui during the run: wrote {size(u['write_bytes'])} while agents ran, "
               f"{size(u['lifetime_write_bytes'])} over its life (start, final checkpoint at "
-              f"close) · {u['change_events']:,} change events on the open stream · Ctrl+C exit "
+              f"close) · {u['change_events']:,} change events on the open stream · SIGTERM exit "
               f"{u['exit_code']} in {u['exit_seconds']:.2f} s{' (killed)' if u['killed'] else ''}",
               file=out)
     print(f"peak RSS of one CLI call: {size(res['rss_max_kib'] * 1024)} (p50 "
