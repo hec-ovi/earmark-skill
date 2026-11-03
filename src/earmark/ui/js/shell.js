@@ -111,7 +111,7 @@ function Search() {
   useEffect(() => { if (!state.filters.q && value) setValue(''); }, [state.filters.q]);
   return html`<label class="search" title="Search titles and descriptions (/)">
     <${Icon} name="search" size=${15} cls="search-ico" />
-    <input ref=${ref} type="search" placeholder="Search issues" aria-label="Search issues" value=${value}
+    <input ref=${ref} type="search" placeholder="Search" aria-label="Search issues" value=${value}
       onInput=${(e) => { setValue(e.target.value); push(e.target.value.trim()); }}
       onKeyDown=${(e) => {
         if (e.key === 'Escape') { e.stopPropagation(); setValue(''); push.cancel(); setFilters({ q: '' }); e.target.blur(); }

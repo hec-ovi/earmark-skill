@@ -151,7 +151,7 @@ export const state = {
   selected: null,
   detail: null,
   showBacklog: store.get('board.backlog', false),
-  showActivity: store.get('detail.activity', true),
+  showActivity: store.get('detail.activity', false),
   sidebarOpen: false,
   sidebarCollapsed: store.get('sidebar.collapsed', false),
   theme: store.get('theme', 'system'),

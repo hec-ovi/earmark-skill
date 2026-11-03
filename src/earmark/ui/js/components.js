@@ -136,7 +136,7 @@ export function DueChip({ due, status, compact }) {
 }
 
 export function Age({ iso, long }) {
-  return html`<time class="age" datetime=${iso} title=${absTime(iso)}>${long ? ago(iso, state.now) : age(iso, state.now)}</time>`;
+  return html`<time class="age" datetime=${iso} title=${absTime(iso)}>${long ? ago(iso) : age(iso)}</time>`;
 }
 
 export function Kbd({ children }) {
@@ -239,7 +239,10 @@ export function Menu({ items, onSelect, multi, search, placeholder = 'Filter…'
     return items.filter((it) => !it.sep && !it.header && (String(it.label).toLowerCase().includes(needle) || String(it.search || '').toLowerCase().includes(needle)));
   }, [items, q]);
   const selectable = visible.filter((it) => !it.sep && !it.header && !it.disabled);
-  useEffect(() => setActive(0), [q]);
+  useEffect(() => {
+    const checked = q || multi ? -1 : selectable.findIndex((it) => it.checked);
+    setActive(Math.max(0, checked));
+  }, [q]);
   useEffect(() => {
     const el = listRef.current && listRef.current.querySelector('.is-active');
     if (el) el.scrollIntoView({ block: 'nearest' });

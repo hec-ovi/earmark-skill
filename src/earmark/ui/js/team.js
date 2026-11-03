@@ -45,7 +45,7 @@ function AgentCard({ a }) {
         <div class="agent-handle">${a.handle}${human ? html`<span class="role role-owner">Owner</span>` : null}</div>
         <div class="agent-sub">
           <${PresenceDot} presence=${a.presence} withLabel />
-          <span class="muted" title=${'Last seen ' + absTime(a.last_seen)}>· seen ${ago(a.last_seen, state.now)}</span>
+          <span class="muted" title=${'Last seen ' + absTime(a.last_seen)}>· seen ${ago(a.last_seen)}</span>
         </div>
       </div>
       <${CliBadge} cli=${a.cli} />
@@ -90,7 +90,7 @@ function Profiles() {
           <span class="profile-ico"><${Icon} name=${p.icon || (ROLE[p.role] || {}).icon || 'user'} size=${16} /></span>
           <span class="profile-txt"><span class="profile-name">${p.name}</span><span class="mono muted small">${p.slug}</span></span>
           <${RoleBadge} role=${p.role} />
-          <span class="profile-agents" title=${(p.agents || []).join(', ') || 'No agents'}>${(p.agents || []).length ? html`<${Icon} name="bot" size=${13} />${p.agents.length}` : null}</span>
+          <span class="profile-agents" title=${(p.agents || []).length ? 'Used by ' + p.agents.join(', ') : 'No agent uses it yet'}>${(p.agents || []).length ? plural(p.agents.length, 'agent') : ''}</span>
         </button>`)}
         ${!profiles.length ? html`<div class="section-empty">No profiles. Create one so agents can join.</div>` : null}
       </div>

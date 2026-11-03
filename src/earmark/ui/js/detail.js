@@ -135,12 +135,12 @@ function HolderBanner({ issue }) {
   const verb = issue.status === 'in_progress' ? 'is working on this' : 'is reviewing this';
   if (issue.stale) {
     return html`<div class="banner banner-stale"><${Icon} name="hourglass" size=${15} />
-      <span><strong>${holder}’s claim is stale.</strong> The lease ended ${ago(issue.lease_until, state.now)}; any agent can take it over with <code>earmark claim ${issue.key}</code>.</span></div>`;
+      <span><strong>${holder}’s claim is stale.</strong> The lease ended ${ago(issue.lease_until)}; any agent can take it over with <code>earmark claim ${issue.key}</code>.</span></div>`;
   }
   return html`<div class="banner banner-live">
     <${Avatar} handle=${holder} size=${20} />
     <span><strong>${holder}</strong> ${verb}${a ? html` · <${PresenceDot} presence=${a.presence} withLabel />` : null}</span>
-    ${issue.lease_until ? html`<span class="banner-lease" title=${'Lease until ' + absTime(issue.lease_until)}><${Icon} name="clock" size=${13} />lease ${untilText(issue.lease_until, state.now)}</span>` : null}
+    ${issue.lease_until ? html`<span class="banner-lease" title=${'Lease until ' + absTime(issue.lease_until)}><${Icon} name="clock" size=${13} />lease ${untilText(issue.lease_until)}</span>` : null}
   </div>`;
 }
 
@@ -215,8 +215,8 @@ function Properties({ issue }) {
       <${Labels} issue=${issue} />
     </${Prop}>
     <div class="props-meta">
-      <span title=${absTime(issue.created_at)}>Created by <strong>${issue.reporter}</strong> ${ago(issue.created_at, state.now)}</span>
-      <span>·</span><span title=${absTime(issue.updated_at)}>updated ${ago(issue.updated_at, state.now)}</span>
+      <span title=${absTime(issue.created_at)}>Created by <strong>${issue.reporter}</strong> ${ago(issue.created_at)}</span>
+      <span>·</span><span title=${absTime(issue.updated_at)}>updated ${ago(issue.updated_at)}</span>
       <span>·</span><span title="Version increases with every field or status change">v${issue.version}</span>
     </div>
   </div>`;

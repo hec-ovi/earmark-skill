@@ -641,7 +641,7 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 
 .thread { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .thread-empty { padding: 4px 0 12px; color: var(--text-4); font-size: 13px; }
-.comment { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 12px 0 8px; border-radius: 8px; }
+.comment { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 12px 0; border-radius: 8px; }
 .comment + .comment { border-top: 1px solid var(--border-row); }
 .comment.is-target, .comment.is-fresh { animation: flash 1.8s ease-out; }
 .comment-main { min-width: 0; }
@@ -655,7 +655,7 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
 }
 .cid:hover { color: var(--accent-text); border-color: var(--accent-soft-2); background: var(--accent-soft); }
 .comment-body { margin-top: 4px; font-size: 13.5px; }
-.comment-actions { display: flex; gap: 2px; margin: 2px 0 0 -7px; opacity: 0; transition: opacity 0.12s; }
+.comment-actions { display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s; }
 .comment:hover .comment-actions, .comment:focus-within .comment-actions { opacity: 1; }
 @media (hover: none) { .comment-actions { opacity: 1; } }
 .act {
@@ -940,3 +940,4 @@ a.topic-chip:hover { border-color: var(--border-2); color: var(--text); }
   .spin .i { animation: spin 2.4s linear infinite !important; animation-duration: 2.4s !important; animation-iteration-count: infinite !important; }
 }
 .nowrap { white-space: nowrap; }
+.agent-issue .mono, .menu-item .mono, .mini-key, .linked .mono { flex: none; white-space: nowrap; }

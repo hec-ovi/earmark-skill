@@ -9,6 +9,8 @@ import { KIND, COMPOSER_KINDS, eventText, EVENT_ICON, PRIORITY, STATUS } from '.
 import { cx, copyText, absTime, store, age } from './util.js';
 import { mdClick } from './components.js';
 
+const WORKFLOW = new Set(['claim', 'release', 'takeover', 'review', 'approve', 'reject', 'reopen']);
+
 export function Conversation({ issue, d }) {
   const [replyTo, setReplyTo] = useState(null);
   const comments = d.comments || [];
@@ -16,7 +18,10 @@ export function Conversation({ issue, d }) {
   const showActivity = state.showActivity;
   const entries = comments.map((c) => ({ at: c.created_at, c }));
   if (showActivity) {
-    (d.events || []).forEach((e) => entries.push({ at: e.at, e }));
+    // a workflow event (claim, review, approve…) already says what the paired status move did
+    const workflow = new Set((d.events || []).filter((e) => WORKFLOW.has(e.action)).map((e) => e.actor + '|' + e.at));
+    (d.events || []).filter((e) => !(e.action === 'status' && workflow.has(e.actor + '|' + e.at)))
+      .forEach((e) => entries.push({ at: e.at, e }));
     entries.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.c ? 1 : -1));
   }
   const composerRef = useRef(null);
@@ -74,7 +79,11 @@ function Comment({ c, issue, parent, onReply, fresh }) {
         ${a && a.role ? html`<${RoleBadge} role=${a.role} />` : owner ? html`<span class="role role-owner">Owner</span>` : null}
         ${c.kind !== 'note' ? html`<${KindBadge} kind=${c.kind} />` : null}
         <span class="comment-spacer"></span>
-        <time class="comment-time" datetime=${c.created_at} title=${absTime(c.created_at)}>${age(c.created_at, state.now)}${c.edited_at ? html`<span class="muted" title=${'Edited ' + absTime(c.edited_at)}> · edited</span>` : null}</time>
+        <span class="comment-actions">
+          <button type="button" class="act" onClick=${() => onReply(c)} title="Reply to this comment"><${Icon} name="reply" size=${13} />Reply</button>
+          ${owner && !editing ? html`<button type="button" class="act" onClick=${() => { setDraft(c.body); setEditing(true); }} title="Edit your comment"><${Icon} name="pencil" size=${13} />Edit</button>` : null}
+        </span>
+        <time class="comment-time" datetime=${c.created_at} title=${absTime(c.created_at)}>${age(c.created_at)}${c.edited_at ? html`<span class="muted" title=${'Edited ' + absTime(c.edited_at)}> · edited</span>` : null}</time>
         <button type="button" class="cid mono" title=${`Copy: earmark comments ${issue.key} --since ${c.id}`} onClick=${copyCursor}>#${c.id}</button>
       </div>
       ${c.reply_to ? html`<button type="button" class="reply-quote" onClick=${() => jump(c.reply_to)} title="Show the comment this replies to">
@@ -90,10 +99,6 @@ function Comment({ c, issue, parent, onReply, fresh }) {
               <button type="button" class="btn btn-sm btn-primary" onClick=${save}>Save</button></div>
           </div>`
         : html`<div class="md comment-body" dangerouslySetInnerHTML=${{ __html: renderMarkdown(c.body, { prefix }) }}></div>`}
-      <div class="comment-actions">
-        <button type="button" class="act" onClick=${() => onReply(c)}><${Icon} name="reply" size=${13} />Reply</button>
-        ${owner && !editing ? html`<button type="button" class="act" onClick=${() => { setDraft(c.body); setEditing(true); }}><${Icon} name="pencil" size=${13} />Edit</button>` : null}
-      </div>
     </div>
   </li>`;
 }
@@ -105,7 +110,7 @@ function EventRow({ e }) {
       : e.action === 'status' && STATUS[e.new] ? html`<${StatusIcon} status=${e.new} size=${12} />`
         : html`<${Icon} name=${EVENT_ICON[e.action] || 'activity'} size=${12} />`}</span>
     <span class="event-txt"><strong>${e.actor}</strong> ${eventText(e)}</span>
-    <time class="event-time" datetime=${e.at} title=${absTime(e.at)}>${age(e.at, state.now)}</time>
+    <time class="event-time" datetime=${e.at} title=${absTime(e.at)}>${age(e.at)}</time>
   </li>`;
 }
 
@@ -134,7 +139,7 @@ function Composer({ issue, replyTo, clearReply }) {
     }
   };
   const mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
-  return html`<div class="composer">
+  return html`<div class="composer" onKeyDown=${(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }}>
     ${replyTo ? html`<div class="composer-reply">
       <${Icon} name="corner-up-left" size=${13} />Replying to <span class="mono">#${replyTo.id}</span> <strong>${replyTo.author}</strong>
       <span class="reply-ex">${excerpt(replyTo.body, 60)}</span>
@@ -143,10 +148,7 @@ function Composer({ issue, replyTo, clearReply }) {
     <textarea ref=${ta} class="textarea composer-input" value=${body} rows="3"
       placeholder=${replyTo ? `Reply to ${replyTo.author}…` : 'Write a comment… @mention an agent to reach its inbox'}
       aria-label="Comment" onInput=${(e) => setBody(e.target.value)}
-      onKeyDown=${(e) => {
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
-        if (e.key === 'Escape') { e.stopPropagation(); e.target.blur(); }
-      }}></textarea>
+      onKeyDown=${(e) => { if (e.key === 'Escape') { e.stopPropagation(); e.target.blur(); } }}></textarea>
     <div class="composer-bar">
       <div class="seg seg-sm" role="radiogroup" aria-label="Comment kind">
         ${COMPOSER_KINDS.map((k) => html`<button type="button" role="radio" aria-checked=${String(kind === k)} key=${k}

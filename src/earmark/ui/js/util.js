@@ -25,7 +25,6 @@ export function ago(iso, now = Date.now()) {
   const t = parseTime(iso);
   if (!Number.isFinite(t)) return '';
   const d = now - t;
-  if (d < 0) return untilText(iso, now);
   if (d < MIN) return 'just now';
   if (d < HOUR) return `${Math.floor(d / MIN)} min ago`;
   if (d < DAY) return `${Math.floor(d / HOUR)} h ago`;
@@ -39,8 +38,10 @@ export function untilText(iso, now = Date.now()) {
   const d = parseTime(iso) - now;
   if (!Number.isFinite(d)) return '';
   if (d <= 0) return 'expired';
-  const h = Math.floor(d / HOUR), m = Math.round((d % HOUR) / MIN);
-  return h ? `in ${h} h ${m} min` : `in ${Math.max(1, m)} min`;
+  const total = Math.max(1, Math.round(d / MIN));
+  const h = Math.floor(total / 60), m = total % 60;
+  if (!h) return `in ${total} min`;
+  return m ? `in ${h} h ${m} min` : `in ${h} h`;
 }
 
 export function shortDate(date) {
