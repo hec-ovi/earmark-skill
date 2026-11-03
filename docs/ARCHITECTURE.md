@@ -204,6 +204,9 @@ Agents never message each other to get work done. A dependency is an issue.
   profile prompt, scope, issues assigned, inbox count and the role's loop.
 - `leave` sets the agent offline and returns its work: `in_progress` and assigned `todo`
   issues become unassigned `todo`, held reviews return to the review queue. `--keep` skips it.
+- `check` is the cheap pulse an agent runs at milestones: one read-only line with its held
+  issues and lease left, todo assigned to it (most urgent first, blockers flagged), its issues in
+  review or blocked, and the inbox count with questions addressed to it.
 - **Presence** shown in `team`: `active` (online, seen < 15 min), `idle` (online, older),
   `offline`.
 
