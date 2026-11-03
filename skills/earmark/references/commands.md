@@ -216,7 +216,7 @@ ui-ux                         UI & UX                   14 open
 
 | Command | Notes |
 |---|---|
-| `earmark join PROFILE [--as HANDLE] [--cli NAME]` | register and print your briefing |
+| `earmark join PROFILE [--as HANDLE] [--cli NAME]` | register and print your briefing; without `--as`, resumes your offline handle for the same profile and CLI (`(resumed)`) |
 | `earmark leave [--keep]` | go offline and return your work |
 | `earmark whoami` | handle, profile, role, scope, your issues |
 | `earmark check [--peek]` | only what changed for you since your last check, by others: new assignments, changes to your issues, new comments and files on them, mentions; `nothing new` otherwise. `--peek` keeps the cursor |
@@ -259,7 +259,7 @@ grok-pm     pm        pm        grok         1h    idle    -
 |---|---|
 | `earmark init [--prefix GAME] [--owner HANDLE] [--no-review]` | creates `.earmark/earmark.db`, seeds profiles |
 | `earmark info` | board path, prefix, counts by status, agents online, file sizes |
-| `earmark wait [--for work\|review\|inbox\|any] [--timeout 9m]` | blocks read-only until something arrives; exit 4 on timeout |
+| `earmark wait [--for work\|review\|changes\|any] [--timeout 9m]` | blocks read-only until work, a review or a change for you (what `check` reports) arrives; exit 4 on timeout |
 | `earmark ui [--port 7477] [--open]` | web UI on 127.0.0.1 |
 | `earmark export` · `earmark backup DIR` | JSON dump to stdout · consistent copy: `DIR/earmark.db` + `DIR/files/` |
 | `earmark doctor [--fix]` | Python, SQLite, WAL, schema, board location, attachment files; `--fix` removes unreferenced files |
