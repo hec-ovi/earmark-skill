@@ -94,6 +94,21 @@ class RealRouteTests(RealServerCase):
         self.fail("DELETE", f"/api/topics/{tid}", status=404, code="not_found")
         self.fail("POST", "/api/topics", {"path": "Bad Path!"}, status=400, code="invalid_request")
 
+    def test_status_route_unblocks_the_waiting_issue(self):
+        waiting = self.worker.create_issue("HUD ammo", topic="ui-ux/hud", priority="high")["key"]
+        self.worker.claim(waiting)
+        need = self.worker.need(waiting, "Ammo icon", topic="engine")
+        blocker = need["created"]["key"]
+        self.assertEqual(need["blocked"]["status"], "blocked")
+        listed = {i["key"]: i for i in self.ok("GET", "/api/issues")["items"]}
+        self.assertEqual((listed[blocker]["blocks_open"], listed[blocker]["effective_priority"]), (1, "high"))
+        self.ok("POST", f"/api/issues/{blocker}/status", {"status": "done", "note": "made"})
+        back = self.ok("GET", f"/api/issues/{waiting}")
+        self.assertEqual((back["status"], back["assignee"], back["link_status"]),
+                         ("todo", "claude-ui", {blocker: "done"}))
+        events = self.ok("GET", f"/api/issues/{waiting}/events")
+        self.assertEqual((events[-1]["action"], events[-1]["actor"]), ("unblocked", "owner"))
+
     def test_issue_lifecycle(self):
         made = self.ok("POST", "/api/issues", {
             "title": "Ammo counter overlaps the minimap", "body": "## Steps\n1. 21:9",
