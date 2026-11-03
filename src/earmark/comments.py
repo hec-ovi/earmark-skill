@@ -11,6 +11,12 @@ SELECT id FROM issues WHERE assignee = :me OR reviewer = :me OR reporter = :me
 UNION SELECT issue_id FROM comments WHERE author = :me
 UNION SELECT c.issue_id FROM mentions m JOIN comments c ON c.id = m.comment_id WHERE m.handle = :me
 """
+# Comments after the inbox cursor that the actor has not already read through the issue's
+# own cursor (`comments KEY --new`), not written by the actor, on the actor's issues.
+INBOX_FROM = ("comments c LEFT JOIN cursors ic ON ic.agent = :me "
+              "AND ic.scope = 'issue:' || c.issue_id")
+INBOX_WHERE = (f"c.id > :cursor AND c.id > coalesce(ic.last_comment_id, 0) AND c.author <> :me "
+               f"AND c.issue_id IN ({INBOX_ISSUES})")
 
 
 class CommentsMixin:
@@ -84,32 +90,45 @@ class CommentsMixin:
 
     def list_comments(self, key: str, *, since: int | None = None, new: bool = False,
                       last: int | None = None, limit: int = 100) -> dict:
-        """{items: [Comment], last_id, has_more}. new=True reads after and advances the cursor."""
+        """{items: [Comment], last_id, has_more}. new=True reads after the actor's issue cursor,
+        skips the actor's own comments and advances the cursor past everything it covered
+        (last_id is then the new cursor position)."""
         limit = int(limit)
         if limit < 1:
             raise InvalidRequest("limit must be at least 1")
         if new and since is not None:
             raise InvalidRequest("give either --since or --new, not both")
         actor = self._need_actor() if new else None
+        scope = None
         with self._read() as conn:
             issue_id = self._issue_id(conn, key)
-            after = self._cursor(conn, actor, f"issue:{issue_id}") if new else int(since or 0)
+            if new:
+                self._actor_row(conn)
+                scope = f"issue:{issue_id}"
+            after = self._cursor(conn, actor, scope) if new else int(since or 0)
+            where, params = "c.issue_id = ? AND c.id > ?", [issue_id, after]
+            if new:
+                where, params = where + " AND c.author <> ?", params + [actor]
+            select = f"SELECT {views.COMMENT_COLUMNS} FROM comments c WHERE {where}"
             if last:
-                rows = conn.execute(
-                    f"SELECT {views.COMMENT_COLUMNS} FROM comments c WHERE c.issue_id = ? AND c.id > ? "
-                    f"ORDER BY c.id DESC LIMIT ?", (issue_id, after, min(int(last), limit))).fetchall()[::-1]
+                rows = conn.execute(f"{select} ORDER BY c.id DESC LIMIT ?",
+                                    params + [min(int(last), limit)]).fetchall()[::-1]
                 has_more = False
             else:
-                rows = conn.execute(
-                    f"SELECT {views.COMMENT_COLUMNS} FROM comments c WHERE c.issue_id = ? AND c.id > ? "
-                    f"ORDER BY c.id LIMIT ?", (issue_id, after, limit + 1)).fetchall()
+                rows = conn.execute(f"{select} ORDER BY c.id LIMIT ?", params + [limit + 1]).fetchall()
                 has_more = len(rows) > limit
                 rows = rows[:limit]
             items = views.comments(conn, self.prefix, rows)
-        last_id = items[-1]["id"] if items else (after or None)
-        if new and items:
-            self._advance_cursor(actor, f"issue:{issue_id}", items[-1]["id"])
-        return {"items": items, "last_id": last_id, "has_more": has_more}
+            if new:
+                upto = items[-1]["id"] if has_more else conn.execute(
+                    "SELECT coalesce(max(id), ?) FROM comments WHERE issue_id = ?",
+                    (after, issue_id)).fetchone()[0]
+        if not new:
+            return {"items": items, "last_id": items[-1]["id"] if items else (after or None),
+                    "has_more": has_more}
+        if upto > after:
+            self._advance_cursor(actor, scope, upto)
+        return {"items": items, "last_id": upto or None, "has_more": has_more}
 
     def inbox(self, *, peek: bool = False, limit: int = 50) -> dict:
         """{items: [Comment], last_id, has_more, cursor}. Advances unless peek."""
@@ -121,8 +140,8 @@ class CommentsMixin:
             self._actor_row(conn)
             cursor = self._cursor(conn, actor, "inbox")
             rows = conn.execute(
-                f"SELECT {views.COMMENT_COLUMNS} FROM comments c WHERE c.id > :cursor "
-                f"AND c.author <> :me AND c.issue_id IN ({INBOX_ISSUES}) ORDER BY c.id LIMIT :n",
+                f"SELECT {views.COMMENT_COLUMNS} FROM {INBOX_FROM} WHERE {INBOX_WHERE} "
+                f"ORDER BY c.id LIMIT :n",
                 {"cursor": cursor, "me": actor, "n": limit + 1}).fetchall()
             has_more = len(rows) > limit
             items = views.comments(conn, self.prefix, rows[:limit])
@@ -135,8 +154,8 @@ class CommentsMixin:
     def _inbox_count(self, conn, actor: str) -> int:
         cursor = self._cursor(conn, actor, "inbox")
         return conn.execute(
-            f"SELECT count(*) FROM comments c WHERE c.id > :cursor AND c.author <> :me "
-            f"AND c.issue_id IN ({INBOX_ISSUES})", {"cursor": cursor, "me": actor}).fetchone()[0]
+            f"SELECT count(*) FROM {INBOX_FROM} WHERE {INBOX_WHERE}",
+            {"cursor": cursor, "me": actor}).fetchone()[0]
 
     def _advance_cursor(self, actor: str, scope: str, last_id: int) -> None:
         """Move a read cursor forward (never back). One small write, only when asked."""
