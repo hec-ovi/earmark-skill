@@ -124,8 +124,12 @@ Inside one `BEGIN IMMEDIATE`, select the first candidate and claim it.
   issue whose status is not `done|canceled`.
 - **Review mode** (`--review`, default for the reviewer role): status `in_review`, reviewer
   empty or stale, assignee is not the actor, inside scope. Claim sets reviewer and lease.
-- **Order**: assigned to the actor first, then priority, then due date (none last), then rank,
-  then id. Review mode orders by priority, then `review_requested_at`.
+- **Effective priority.** An issue that blocks open issues takes the most urgent priority among
+  the issues it blocks (one level), so a low-priority asset that holds up high-priority work is
+  worked as high. `show` prints both (`priority: low (effective high, blocks GAME-42)`).
+- **Order**: assigned to the actor first, then effective priority, then issues that block
+  others before those that do not, then due date (none last), then rank, then id. Review mode
+  orders by effective priority, then `review_requested_at`.
 - Nothing found: exit code 4 (`empty`) with counts that tell the agent where to look next
   (review queue size, inbox count, stale claims).
 
@@ -133,10 +137,11 @@ Inside one `BEGIN IMMEDIATE`, select the first candidate and claim it.
 
 Agents never message each other to get work done. A dependency is an issue.
 
-- `need KEY TITLE -t TOPIC …` runs in one write transaction: it creates the new issue in
-  TOPIC (reporter = actor, priority defaults to KEY's), links `NEW blocks KEY`, and when the
+- `need KEY TITLE -t TOPIC [--assign HANDLE] …` runs in one write transaction: it creates the
+  new issue in TOPIC (reporter = actor, priority defaults to KEY's, assigned to HANDLE when
+  given), links `NEW blocks KEY`, and when the
   actor holds KEY moves KEY to `blocked`, keeping the assignee and clearing the lease. It posts
-  a `note` on KEY naming NEW. `next` hands NEW to an agent whose scope covers TOPIC.
+  a `note` on KEY naming NEW. Without `--assign`, `next` hands NEW to an agent whose scope covers TOPIC.
 - **Auto-unblock.** When an issue moves to `done` or `canceled`, every issue it blocks that is
   `blocked` and has no other open blocker moves to `todo` with its assignee kept (event
   `unblocked`, actor = whoever resolved the blocker). The assignee's `next` returns it first.
