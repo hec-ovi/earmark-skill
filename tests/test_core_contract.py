@@ -129,15 +129,16 @@ class Contract(BoardCase):
         key = self.issue("feature", priority="low")["key"]
         ui.claim(key)
         self.check("Check", ui.check())
-        dep = ui.need(key, "endpoint", topic="api")["created"]["key"]
-        pm.update_issue(key, priority="high", title="Feature")
-        b.attach(key, [("log.txt", io.BytesIO(b"trace"))])
-        pm.add_comment(key, "@claude-ui status?", kind="question")
-        b.move(dep, "done")
-        ui.claim(key)
         ui.submit_review(key, note="ready")
         qa.claim(key)
         qa.reject(key, note="no")
+        waiting = self.issue("waits on the api")["key"]
+        ui.claim(waiting)
+        dep = ui.need(waiting, "endpoint", topic="api")["created"]["key"]
+        pm.update_issue(waiting, priority="high", title="Feature")
+        b.attach(waiting, [("log.txt", io.BytesIO(b"trace"))])
+        pm.add_comment(waiting, "@claude-ui status?", kind="question")
+        b.move(dep, "done")
         b.assign(self.issue("assigned")["key"], "claude-ui")
         self.clock.advance(minutes=200)
         stale = self.issue("stale")["key"]

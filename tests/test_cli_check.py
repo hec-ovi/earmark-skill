@@ -150,7 +150,9 @@ class RealCheckTests(CliBoardCase):
                                   "1 new comment, question for you")
         self.assertEqual(self.ok("claim", "1", as_="w1", hint=True).splitlines()[-1],
                          "· 1 change for you: earmark check")
-        self.assertEqual(self.ok("check", as_="w1").splitlines()[1:], peek[1:])
+        # its claim is newer than the assignment; the question is still unread
+        self.assertEqual(self.ok("check", as_="w1").splitlines()[1:],
+                         ["GAME-1  1 new comment, question for you"])
         self.assertTrue(self.ok("check", as_="w1").startswith("check: nothing new"))
         self.assertEqual(self.ok("comment", "1", "on it", as_="w1", hint=True).count("changes for you"), 0)
         env = self.json("check", "--peek", as_="w1")
@@ -165,9 +167,8 @@ class RealCheckTests(CliBoardCase):
         self.ok("next", as_="r1")
         self.ok("reject", "1", "-m", "fails on reload", as_="r1")
         out = self.ok("next", as_="w1", hint=True).splitlines()
-        self.assertEqual(out[-3:], ["#2  r1  changes  11-03 10:02", "  fails on reload",
-                                    "· 1 change for you: earmark check"])  # the reject, not the note
-        self.assertEqual(self.ok("check", as_="w1").splitlines()[1:], ["GAME-1  rejected (r1)"])
+        self.assertEqual(out[-2:], ["#2  r1  changes  11-03 10:02", "  fails on reload"])  # no hint
+        self.assertTrue(self.ok("check", as_="w1").startswith("check: nothing new"))
         self.ok("comment", "1", "also the hover state", as_="hector")
         self.assertIn("also the hover state", self.ok("show", "1", "--new", as_="w1"))
         self.assertTrue(self.ok("check", as_="w1").startswith("check: nothing new"))

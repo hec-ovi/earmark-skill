@@ -263,8 +263,9 @@ class Feed(BoardCase):
         with self.assertRaises(NotJoined):
             self.open_as("ghost").check()
 
-    def test_comments_read_through_next_are_not_reported_again(self):
-        """`next` prints the unread comments (advancing issue:<id>); check keeps the events."""
+    def test_what_next_printed_is_not_reported_again(self):
+        """`next` prints the issue and its unread comments (advancing issue:<id>), and its claim
+        is newer than the reject: neither the reject nor its comment is news afterwards."""
         b, ui, qa = self.board, self.ui, self.qa
         key = self.issue("feature")["key"]
         ui.claim(key)
@@ -276,17 +277,63 @@ class Feed(BoardCase):
         self.assertEqual(ui.next()["key"], key)  # assigned to it after the reject
         read = ui.list_comments(key, new=True)["items"]  # what the CLI's `next` prints
         self.assertEqual([c["body"] for c in read], ["fails on reload"])
-        feed = ui.check(peek=True)
-        item = by_key(feed)[key]
-        self.assertEqual((item["changes"], item["comments"], item["questions"], item["action"]),
-                         ([{"kind": "rejected", "by": "codex-qa"}], 0, 0, True))
-        self.assertPending(feed)
-        ui.check()
+        self.assertEqual(ui.check(peek=True)["changed"], [])
         self.assertEqual(ui.pending_changes(), 0)
         self.step()
         b.add_comment(key, "also check the hover state")  # after the read: news again
-        self.assertEqual(by_key(ui.check(peek=True))[key]["comments"], 1)
+        b.update_issue(key, priority="high")  # and an event after its claim
+        item = by_key(ui.check(peek=True))[key]
+        self.assertEqual((kinds(item), item["comments"]), (["field"], 1))
         self.assertEqual(ui.pending_changes(), 1)
+
+    def test_a_link_before_the_claim_is_not_reported(self):
+        """Live-test repro: pm linked SHOP-8 before backend-dev's `next` claimed it (show printed
+        the link); check and the hint still said `SHOP-8  links changed`."""
+        b, ui, pm = self.board, self.ui, self.pm
+        key = self.issue("endpoint", priority="high")["key"]
+        other = self.issue("schema")["key"]
+        self.step()
+        pm.link(other, "blocks", key)
+        pm.move(other, "done")
+        self.assertEqual(ui.pending_changes(), 0)  # not its issue yet
+        self.assertEqual(ui.next()["key"], key)
+        self.assertEqual(ui.check(peek=True)["changed"], [])
+        self.assertEqual(ui.pending_changes(), 0)
+        self.step()
+        pm.link(key, "relates", other)  # after the claim: news
+        self.assertEqual(set(by_key(ui.check(peek=True))), {key})
+        self.assertEqual(ui.pending_changes(), 1)
+
+    def test_a_review_claim_hides_the_handoff(self):
+        """Live-test repro: reviewer's `next --review` printed SHOP-4 in review, yet check still
+        reported `SHOP-4  status in_progress→in_review`."""
+        ui, qa = self.ui, self.qa
+        key = self.issue("feature")["key"]
+        qa.check()
+        ui.claim(key)
+        ui.submit_review(key, note="ready")
+        self.assertEqual(qa.next(review=True)["key"], key)
+        qa.list_comments(key, new=True)
+        self.assertEqual(qa.check(peek=True)["changed"], [])
+        self.assertEqual(qa.pending_changes(), 0)
+        self.step()
+        ui.update_issue(key, body="more detail")
+        self.assertEqual(kinds(by_key(qa.check())[key]), ["field"])
+
+    def test_an_own_comment_from_a_later_second_hides_older_events(self):
+        b, ui = self.board, self.ui
+        key = self.issue("x")["key"]
+        b.assign(key, "claude-ui")
+        ui.check()
+        b.update_issue(key, title="renamed")
+        ui.add_comment(key, "same second: ordering unknown, still reported")
+        self.assertEqual(kinds(by_key(ui.check(peek=True))[key]), ["field"])
+        self.step()
+        ui.add_comment(key, "a second later: it had seen the rename")
+        self.assertEqual(ui.check(peek=True)["changed"], [])
+        self.assertEqual(ui.pending_changes(), 0)
+        b.update_issue(key, priority="low")
+        self.assertEqual(kinds(by_key(ui.check())[key]), ["field"])
 
     def test_comments_read_through_show_new_are_not_reported_again(self):
         b, ui, qa = self.board, self.ui, self.qa
