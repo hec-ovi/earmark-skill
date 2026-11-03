@@ -67,7 +67,7 @@ _EVENT_COLS = "e.id, e.issue_id, e.actor, e.action, e.old, e.new, e.at"
 # and reviewer (the rows of CHECK_COMMENTS_MINE); any other comment naming the agent mentions it.
 _COMMENT_COLS = ("c.id, c.issue_id, c.kind, EXISTS (SELECT 1 FROM mentions q WHERE "
                  "q.comment_id = c.id AND q.handle = :me) AS mentioned, EXISTS (SELECT 1 FROM "
-                 "mentions q WHERE q.comment_id = c.id) AS named")
+                 "mentions q WHERE q.comment_id = c.id) AS any_mention")
 
 
 def _union(parts: list[str], cols: str, upto: str) -> str:
@@ -608,7 +608,7 @@ class TeamMixin:
         for row in conn.execute(CHECK_COMMENTS_SQL, params):
             item = entry(row["issue_id"])
             item["comments"] += 1
-            if row["kind"] == "question" and (row["mentioned"] or not row["named"]):
+            if row["kind"] == "question" and (row["mentioned"] or not row["any_mention"]):
                 item["questions"] += 1
             elif row["mentioned"]:
                 item["mentions"] += 1
