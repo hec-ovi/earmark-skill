@@ -67,15 +67,16 @@ class HintTests(unittest.TestCase):
         self.assertNotIn("changes", json.loads(out)["meta"])
 
     def test_next_with_nothing_to_claim_still_hints(self):
-        empty = errors.Empty("nothing", details={"review_queue": 0, "inbox": 1, "stale": 0, "mode": "work"})
+        empty = errors.Empty("nothing", details={"review_queue": 0, "changes": 2, "inbox": 1, "stale": 0,
+                                                 "mode": "work"})
 
         def raise_(**kw):
             raise empty
         with fake_board(next=raise_, pending_changes=2):
             code, out, _ = run_main(["next"] + AS)
         self.assertEqual(code, 4)
-        self.assertEqual(out, "next: nothing ready in your scope · review queue: 0 · inbox: 1 new · stale: 0\n"
-                              "· 2 changes for you: earmark check\n")
+        self.assertEqual(out, "next: nothing ready for you · reviews for you: 0 · changes for you: 2 · "
+                              "stale: 0\n· 2 changes for you: earmark check\n")
         with fake_board(next=raise_, pending_changes=2):
             code, out, _ = run_main(["next", "--json"] + AS)
         env = json.loads(out)

@@ -509,9 +509,20 @@ class Next(BoardCase):
         with self.assertRaises(Empty) as ctx:
             w2.next()
         details = ctx.exception.details
-        self.assertEqual(details, {"review_queue": 1, "inbox": 1, "stale": 0, "scope": [],
-                                   "mode": "work"})
+        self.assertEqual(details, {"review_queue": 1, "changes": 2, "inbox": 1, "stale": 0,
+                                   "scope": [], "mode": "work"})  # changes: the mention, GAME-3
         self.assertEqual(ctx.exception.hint, "earmark next --review")
+        self.assertEqual(ctx.exception.message, "nothing ready for you")
+        with self.assertRaises(Empty) as ctx:
+            w1.next(review=True)  # the only issue in review is its own handoff
+        self.assertEqual((ctx.exception.message, ctx.exception.hint), (
+            "nothing to review for you (your own handoffs excluded)", "earmark wait --for review"))
+        self.assertEqual((ctx.exception.details["review_queue"], ctx.exception.details["changes"]),
+                         (0, 0))
+        self.board.update_issue(key, title="renamed")
+        with self.assertRaises(Empty) as ctx:
+            w1.next(review=True)
+        self.assertEqual((ctx.exception.hint, ctx.exception.details["changes"]), ("earmark check", 1))
         self.assertEqual(ctx.exception.exit_code, 4)
 
     def test_next_requires_a_joined_actor(self):

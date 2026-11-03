@@ -24,7 +24,8 @@ def raiser(exc):
 
 
 EMPTY = errors.Empty("nothing ready in your scope", hint="earmark next --review",
-                     details={"review_queue": 3, "inbox": 2, "stale": 0, "scope": [], "mode": "work"})
+                     details={"review_queue": 3, "changes": 2, "inbox": 0, "stale": 0, "scope": [],
+                              "mode": "work"})
 
 
 class NextTests(unittest.TestCase):
@@ -71,7 +72,14 @@ class NextTests(unittest.TestCase):
         review = errors.Empty("x", details=dict(EMPTY.details, mode="review"))
         with fake_board(next=raiser(review)):
             code, out, _ = run_main(["next", "--as", "r-1"])
-        self.assertEqual(out, "next: nothing to review in your scope · review queue: 3 · inbox: 2 new · stale: 0\n")
+        self.assertEqual(out.rstrip("\n"), contract_line("next: nothing to review"))
+        self.assertEqual(out, "next: nothing to review for you (your own handoffs excluded) · "
+                              "changes for you: 2\n")
+        legacy = errors.Empty("x", details={"review_queue": 1, "inbox": 2, "stale": 0, "mode": "work"})
+        with fake_board(next=raiser(legacy)):  # details from before 1.3: no changes count
+            _, out, _ = run_main(["next", "--as", "w-1"])
+        self.assertEqual(out, "next: nothing ready for you · reviews for you: 1 · changes for you: 0 · "
+                              "stale: 0\n")
         with fake_board(next=raiser(EMPTY)):
             code, out, _ = run_main(["next", "--as", "w-1", "--json"])
         env = json.loads(out)

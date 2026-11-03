@@ -62,8 +62,8 @@ class WorkFlowTests(CliBoardCase):
                                        "GAME-2  Mute button state\nstatus: in_progress"), out)
         self.ok("claim", "1", as_="codex-qa")
         code, out, _ = self.cli("approve", "1", "-m", "ok", "--next", as_="codex-qa")
-        self.assertEqual((code, strip_hint(out)), (4, "GAME-1 approved · done\nnext: nothing to review in your scope · "
-                                          "review queue: 0 · inbox: 1 new · stale: 0\n"))
+        self.assertEqual((code, strip_hint(out)), (4, "GAME-1 approved · done\nnext: nothing to review for you "
+                                          "(your own handoffs excluded) · changes for you: 1\n"))
         self.assertEqual(self.ok("show", "1", "-f", "status"), "status: done\n")  # committed anyway
 
     def test_release_move_done_cancel(self):
@@ -97,16 +97,16 @@ class WorkFlowTests(CliBoardCase):
         self.ok("claim", "2", as_="claude-ui")
         code, out, err = self.cli("next", as_="claude-ui")
         self.assertEqual((code, err), (4, ""))
-        self.assertEqual(out, "next: nothing ready in your scope · review queue: 0 · inbox: 0 new · stale: 0\n")
+        self.assertEqual(out, "next: nothing ready for you · reviews for you: 0 · changes for you: 0 · "
+                              "stale: 0\n")
         self.ok("join", "worker", as_="grok-1")
         code, out, _ = self.cli("next", as_="grok-1")
-        self.assertEqual((code, out), (4, "next: nothing ready in your scope · review queue: 1 · "
-                                          "inbox: 0 new · stale: 0\n"))
+        self.assertEqual((code, out), (4, "next: nothing ready for you · reviews for you: 1 · "
+                                          "changes for you: 0 · stale: 0\n"))
         self.advance(hours=3)
         code, out, _ = self.cli("next", "--review", as_="claude-ui")
         self.assertEqual(code, 4)
-        self.assertTrue(out.startswith("next: nothing to review in your scope"), out)
-        self.assertIn("stale: 1", out)
+        self.assertTrue(out.startswith("next: nothing to review for you (your own handoffs excluded)"), out)
         env = self.json("next", "--review", as_="claude-ui")
         self.assertEqual((env["error"]["code"], env["error"]["details"]["mode"]), ("empty", "review"))
 

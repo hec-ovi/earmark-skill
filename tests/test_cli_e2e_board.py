@@ -102,7 +102,7 @@ class BoardCommandTests(LauncherCase):
         self.assertEqual(self.run_cli("ls", "--nope").returncode, 1)
         empty = self.run_cli("next", "--as", "w-1")
         self.assertEqual((empty.returncode, empty.stderr), (4, ""))
-        self.assertTrue(empty.stdout.startswith("next: nothing ready in your scope · "))
+        self.assertTrue(empty.stdout.startswith("next: nothing ready for you · "))
         self.run_ok("new", "Held", "--as", "hector")
         self.run_ok("claim", "1", "--as", "w-1")
         self.run_ok("join", "worker", "--as", "w-2")
