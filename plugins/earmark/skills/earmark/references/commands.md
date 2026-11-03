@@ -41,7 +41,7 @@ GAME-51  todo         medium  task  -          ui-ux/video-calls              Mu
 2 of 2 open issues
 ```
 
-Flags: `c:N` comments, `due:MM-DD` (`overdue` when past), `blocked`, `stale`, `sub:N` children.
+Flags: `c:N` comments, `due:MM-DD` (`overdue` when past), `blocked`, `stale`, `sub:N` children, `a:N` attachments.
 When more exist: `50 of 212 open issues · next: --offset 50`.
 
 ### `show`
@@ -107,7 +107,7 @@ Covers issues you are assignee, reviewer or reporter of, have commented on, or a
 |---|---|
 | `earmark new TITLE [-b BODY \| --body-file F \| --body-file -] [-t PATH] [-p PRIO] [--type T] [-l LABEL]… [--due DATE] [--parent KEY] [--assign H] [--status backlog]` | prints the new key |
 | `earmark edit KEY [--title T] [-b BODY \| --body-file F \| --append TEXT] [-t PATH] [-p PRIO] [--type T] [--due DATE \| --no-due] [-l +LABEL \| -l -LABEL]… [--parent KEY \| --no-parent] [--if-version N]` | only given fields change |
-| `earmark comment KEY TEXT [--kind note\|progress\|question] [--reply-to ID]` | `-` or `--body-file F` reads the body; prints `#<id>` |
+| `earmark comment KEY TEXT [--kind note\|progress\|question] [--reply-to ID] [--attach FILE]…` | `-` or `--body-file F` reads the body; prints `#<id>` and any `@<attachment id>` |
 | `earmark comment --edit ID TEXT` | your own comments only |
 | `earmark link KEY blocks\|duplicates\|relates KEY2` · `earmark unlink …` | dependencies |
 | `earmark assign KEY HANDLE\|none` | owner or pm |
@@ -115,6 +115,27 @@ Covers issues you are assignee, reviewer or reporter of, have commented on, or a
 | `earmark delete KEY --yes` | owner only; prefer `cancel` |
 
 Dates: `2026-11-07`, `today`, `tomorrow`, `+3d`, `+2w`.
+
+## Attachments
+
+Files live beside the board in `.earmark/files/`; commands print absolute paths, so open
+images and files with your own tools.
+
+| Command | Notes |
+|---|---|
+| `earmark attach KEY FILE… [--comment ID]` | attach to the issue, or to one of its comments; prints `@<id>` per file |
+| `earmark attachments KEY` | list: id, kind, size, name, author, comment, path |
+| `earmark attachment ID [--out DEST]` | one attachment's fields and path · copy it to DEST |
+| `earmark detach ID` | author, owner or pm |
+
+```
+ID   KIND   SIZE    NAME                AUTHOR     COMMENT  PATH
+@12  image  184 KB  eye-picker-bug.png  claude-ui  #1187    /work/game/.earmark/files/3f/3fa1…c9.png
+@13  audio  2.1 MB  ambience-v2.ogg     agy-audio  -        /work/game/.earmark/files/a0/a07e…41.ogg
+```
+
+`show` adds `attachments: 2 (1 image, 1 audio)`; comment headers add `files:@12,@13`;
+`ls` flags add `a:N`. Limit per file: `earmark config max_attachment_mb` (default 50).
 
 ## Topics
 
@@ -162,6 +183,6 @@ grok-pm     pm        pm        grok         1h    idle    -
 | `earmark info` | board path, prefix, counts by status, agents online, file sizes |
 | `earmark wait [--for work\|review\|inbox\|any] [--timeout 9m]` | blocks read-only until something arrives; exit 4 on timeout |
 | `earmark ui [--port 7477] [--open]` | web UI on 127.0.0.1 |
-| `earmark export` · `earmark backup PATH` | JSON dump to stdout · consistent SQLite copy |
-| `earmark doctor` | Python, SQLite, WAL, schema, board location checks |
-| `earmark config [KEY [VALUE]]` | `require_review`, `lease_minutes`, `prefix` |
+| `earmark export` · `earmark backup DIR` | JSON dump to stdout · consistent copy: `DIR/earmark.db` + `DIR/files/` |
+| `earmark doctor [--fix]` | Python, SQLite, WAL, schema, board location, attachment files; `--fix` removes unreferenced files |
+| `earmark config [KEY [VALUE]]` | `require_review`, `lease_minutes`, `max_attachment_mb`, `prefix` |
