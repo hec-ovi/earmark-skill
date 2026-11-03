@@ -76,7 +76,7 @@ class BoardCommandTests(LauncherCase):
         self.assertTrue(info[1].startswith("prefix: GAME · owner: hector · schema: 1"))
         self.assertIn("issues: 1 total, 1 open · todo 1", info)
         self.assertEqual(self.run_ok("config").stdout,
-                         "require_review: true\nlease_minutes: 120\nprefix: GAME\n")
+                         "require_review: true\nlease_minutes: 120\nmax_attachment_mb: 50\nprefix: GAME\n")
         self.assertEqual(self.run_ok("config", "lease_minutes", "90", "--as", "hector").stdout,
                          "lease_minutes: 90\n")
         self.assertEqual(self.run_ok("config", "lease_minutes").stdout, "lease_minutes: 90\n")
@@ -84,10 +84,11 @@ class BoardCommandTests(LauncherCase):
         doctor = self.run_ok("doctor").stdout.splitlines()
         self.assertRegex(doctor[-1], r"^doctor: (\d+) of \1 checks ok$")
         self.assertTrue(all(ln.startswith("ok  ") for ln in doctor[:-1]), doctor)
-        dest = os.path.join(self.tmp, "copy.db")
+        dest = os.path.join(self.tmp, "copy")
         out = self.run_ok("backup", dest).stdout
-        self.assertTrue(out.startswith("backup: ") and " KB" in out, out)
-        self.assertTrue(os.path.getsize(dest) > 0)
+        self.assertTrue(out.startswith(f"backup: {os.path.join(dest, 'earmark.db')} · ") and " KB" in out, out)
+        self.assertTrue(out.rstrip().endswith(" · files: 0 (0 B)"), out)
+        self.assertTrue(os.path.getsize(os.path.join(dest, "earmark.db")) > 0)
         self.assertIn("One", self.run_ok("--db", dest, "ls").stdout)
         dump = json.loads(self.run_ok("export").stdout)
         self.assertEqual([i["title"] for i in dump["issues"]], ["One"])

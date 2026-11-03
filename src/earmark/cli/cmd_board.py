@@ -124,7 +124,7 @@ def _basic_checks(detail: str) -> list[dict]:
 
 def cmd_doctor(ctx: Context, a) -> Result:
     try:
-        checks = ctx.board().doctor()
+        checks = ctx.board().doctor(fix=a.fix)
     except NoBoard as e:
         checks = _basic_checks(e.message + (f" ({e.hint})" if e.hint else ""))
     bad = [c for c in checks if not c.get("ok")]

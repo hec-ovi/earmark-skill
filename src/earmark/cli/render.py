@@ -179,6 +179,7 @@ LS_COLUMNS: dict[str, tuple[str, Callable[[dict], Any]]] = {
     "rank": ("RANK", lambda i: i.get("rank")),
     "version": ("VERSION", lambda i: i.get("version")),
     "comment_count": ("C", lambda i: i.get("comment_count")),
+    "attachment_count": ("A", lambda i: i.get("attachment_count")),
     "last_comment_id": ("LAST", lambda i: f"#{i['last_comment_id']}" if i.get("last_comment_id") else None),
     "lease_until": ("LEASE", lambda i: i.get("lease_until")),
     "waiting": ("WAITING", lambda i: i.get("waiting")),
@@ -190,7 +191,8 @@ LS_COLUMNS: dict[str, tuple[str, Callable[[dict], Any]]] = {
 LS_INTERNAL = {"waiting"}   # triage-only column
 LS_ALIASES = {"prio": "priority", "comments": "comment_count", "c": "comment_count",
               "created": "created_at", "updated": "updated_at", "lease": "lease_until",
-              "sub": "children", "label": "labels", "last_comment": "last_comment_id"}
+              "sub": "children", "label": "labels", "last_comment": "last_comment_id",
+              "attachments": "attachment_count", "a": "attachment_count"}
 
 
 def ls_fields(spec: str | None) -> list[str]:
@@ -211,7 +213,7 @@ def ls_fields(spec: str | None) -> list[str]:
 
 
 def issue_flags(issue: dict, day: str | None = None) -> list[str]:
-    """Trailing ls flags: c:N due:MM-DD overdue blocked stale sub:N."""
+    """Trailing ls flags: c:N due:MM-DD overdue blocked stale sub:N a:N."""
     day = day or today()
     flags = []
     if issue.get("comment_count"):
@@ -229,6 +231,8 @@ def issue_flags(issue: dict, day: str | None = None) -> list[str]:
     n = len(kids) if isinstance(kids, list) else (kids or 0)
     if n:
         flags.append(f"sub:{n}")
+    if issue.get("attachment_count"):
+        flags.append(f"a:{issue['attachment_count']}")
     return flags
 
 
@@ -331,6 +335,26 @@ def comments_summary(issue: dict) -> str:
     return text
 
 
+KIND_PLURALS = {"image": "images", "video": "videos", "pdf": "pdfs", "file": "files"}
+KIND_ORDER = ("image", "audio", "video", "pdf", "text", "file")
+
+
+def attachments_summary(issue: dict) -> str:
+    """`attachments: 2 (1 image, 1 audio)`; '' when the issue has none."""
+    items = issue.get("attachments")
+    if not isinstance(items, list):
+        n = issue.get("attachment_count") or 0
+        return f"attachments: {n}" if n else ""
+    if not items:
+        return ""
+    counts = {k: 0 for k in KIND_ORDER}
+    for a in items:
+        kind = a.get("kind") if a.get("kind") in counts else "file"
+        counts[kind] += 1
+    parts = [f"{n} {KIND_PLURALS.get(k, k) if n > 1 else k}" for k, n in counts.items() if n]
+    return f"attachments: {len(items)} ({', '.join(parts)})"
+
+
 def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None) -> str:
     """`earmark show` (and `next`) text, exactly the commands.md layout."""
     day = day or today()
@@ -360,6 +384,9 @@ def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None) ->
     lines.append(g.join([f"created: {dash(issue.get('created_at'))}",
                          f"updated: {dash(issue.get('updated_at'))}"]))
     lines.append(comments_summary(issue))
+    files = attachments_summary(issue)
+    if files:
+        lines.append(files)
     lines.append("")
     body = issue.get("body") or ""
     lines.append(body.rstrip("\n") if body.strip() else style.dim("(no description)"))
@@ -378,7 +405,8 @@ SHOW_FIELDS = ("key", "title", "body", "status", "priority", "type", "topic", "a
                "reviewer", "reporter", "labels", "due", "parent", "children", "blocks",
                "blocked_by", "duplicates", "relates", "lease_until", "stale", "version",
                "created_at", "updated_at", "started_at", "review_requested_at", "resolved_at",
-               "comment_count", "last_comment_id", "new_comments")
+               "comment_count", "last_comment_id", "new_comments", "attachment_count",
+               "attachments")
 SHOW_ALIASES = {"sub": "children", "prio": "priority", "created": "created_at",
                 "updated": "updated_at", "lease": "lease_until", "comments": "comment_count",
                 "description": "body", "blocked-by": "blocked_by", "label": "labels"}
@@ -403,6 +431,8 @@ def field_value(issue: dict, name: str) -> Any:
         return _children_keys(issue)
     if name in ("blocks", "blocked_by", "duplicates", "relates"):
         return _links(issue, name)
+    if name == "attachments":
+        return [f"@{a.get('id')}" for a in issue.get("attachments") or []]
     return issue.get(name)
 
 
@@ -434,6 +464,9 @@ def comment_lines(c: dict, *, with_key: bool = False, style: Style = PLAIN) -> l
         head.append(f"reply-to:#{c['reply_to']}")
     if c.get("edited_at"):
         head.append("edited")
+    files = c.get("attachments") or []
+    if files:
+        head.append("files:" + ",".join(f"@{a.get('id')}" for a in files))
     first = "  ".join(head)
     if style.color:
         first = style.bold(first)
@@ -849,4 +882,57 @@ def render_backup(res: Any, dest: str) -> str:
     size = res.get("bytes") if "bytes" in res else res.get("size")
     if size is not None:
         parts.append(human_size(size))
+    if "files" in res:
+        parts.append(f"files: {res['files']} ({file_size(res.get('files_bytes') or 0)})")
+    if res.get("missing"):
+        parts.append(f"missing: {len(res['missing'])} (see earmark doctor)")
     return SEP.join(parts)
+
+
+# ---- attachments --------------------------------------------------------------------------
+
+def file_size(n: Any) -> str:
+    """Attachment sizes: 512 B, 7.5 KB, 184 KB, 2.1 MB (one decimal under 10)."""
+    try:
+        n = float(n)
+    except (TypeError, ValueError):
+        return dash(n)
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            if unit == "B":
+                return f"{n:.0f} B"
+            return f"{n:.1f} {unit}" if n < 10 else f"{n:.0f} {unit}"
+        n /= 1024
+    return f"{n:.0f} GB"
+
+
+def render_attachments(items: list[dict], *, key: str | None = None, style: Style = PLAIN) -> str:
+    """`earmark attachments KEY`: id, kind, size, name, author, comment, absolute path."""
+    if not items:
+        return f"attachments: none on {key}" if key else "attachments: none"
+    rows = [[f"@{a.get('id')}", dash(a.get("kind")), file_size(a.get("size")), dash(a.get("name")),
+             dash(a.get("author")), f"#{a['comment_id']}" if a.get("comment_id") else "-",
+             dash(a.get("path"))] for a in items]
+    cols = [("ID", style.bold), ("KIND", None), ("SIZE", None), ("NAME", None), ("AUTHOR", None),
+            ("COMMENT", None), ("PATH", None)]
+    return "\n".join(table(cols, rows, style))
+
+
+def render_attachment(a: dict, *, style: Style = PLAIN) -> str:
+    """`earmark attachment ID`: its fields, then the path to open."""
+    g = "   "
+    comment = f"#{a['comment_id']}" if a.get("comment_id") else "-"
+    return "\n".join([
+        f"{style.bold('@' + str(a.get('id')))}  {a.get('name') or ''}".rstrip(),
+        g.join([f"issue: {dash(a.get('issue'))}", f"comment: {comment}",
+                f"author: {dash(a.get('author'))}", f"created: {dash(a.get('created_at'))}"]),
+        g.join([f"kind: {dash(a.get('kind'))}", f"mime: {dash(a.get('mime'))}",
+                f"size: {file_size(a.get('size'))} ({dash(a.get('size'))} bytes)"]),
+        f"sha256: {dash(a.get('sha256'))}",
+        f"path: {dash(a.get('path'))}",
+    ])
+
+
+def render_saved(res: dict) -> str:
+    a = res.get("attachment") or {}
+    return SEP.join([f"@{a.get('id')} copied to {res.get('path')}", file_size(res.get("bytes"))])

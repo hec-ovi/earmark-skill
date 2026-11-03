@@ -72,6 +72,9 @@ def cmd_comment(ctx: Context, a) -> Result:
         if a.key is not None and a.text is not None:
             raise InvalidRequest("comment --edit takes ID and TEXT, no KEY",
                                  hint=f'earmark comment --edit {cid} "new text"')
+        if a.attach:
+            raise InvalidRequest("comment --edit changes text only; --attach goes on a new comment",
+                                 hint=f"earmark attach KEY FILE --comment {cid}")
         inline = a.text if a.text is not None else a.key
         if inline is not None and a.body_file is not None:
             raise InvalidRequest("comment: give TEXT or --body-file, not both")
@@ -94,8 +97,11 @@ def cmd_comment(ctx: Context, a) -> Result:
         kw["kind"] = a.kind
     if reply_to is not None:
         kw["reply_to"] = reply_to
+    if a.attach:
+        kw["attach"] = list(a.attach)
     c = ctx.board().add_comment(a.key, body, **kw)
-    return Result(c, lambda: f"#{c.get('id')}")
+    return Result(c, lambda: " ".join([f"#{c.get('id')}"] + [f"@{f.get('id')}" for f in
+                                                              c.get("attachments") or []]))
 
 
 def _link(ctx: Context, a, verb: str) -> Result:

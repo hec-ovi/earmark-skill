@@ -16,7 +16,7 @@ if TYPE_CHECKING:  # annotations only; typing stays off the startup path
 
 from earmark.errors import InvalidRequest
 
-GROUPS = ("Read", "Work", "Write", "Topics", "Team", "Board")
+GROUPS = ("Read", "Work", "Write", "Files", "Topics", "Team", "Board")
 
 # name -> (group, one-line description)
 COMMANDS: dict[str, tuple[str, str]] = {
@@ -43,6 +43,10 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "assign": ("Write", "set or clear the assignee (owner or pm)"),
     "rank": ("Write", "manual order: --before, --after, --top or --bottom"),
     "delete": ("Write", "delete an issue for good (owner; needs --yes; prefer cancel)"),
+    "attach": ("Files", "attach files to an issue or one of its comments; prints @id per file"),
+    "attachments": ("Files", "an issue's files: id, kind, size, name, author, comment, path"),
+    "attachment": ("Files", "one attachment's fields and path, or copy it with --out"),
+    "detach": ("Files", "remove an attachment (its author, the owner or a pm)"),
     "topic": ("Topics", "add, edit, mv or rm a topic"),
     "join": ("Team", "register as a profile and print your briefing"),
     "leave": ("Team", "go offline and return your work to the queue"),
@@ -56,9 +60,9 @@ COMMANDS: dict[str, tuple[str, str]] = {
     "wait": ("Board", "block read-only until work, a review or inbox arrives"),
     "ui": ("Board", "web UI on 127.0.0.1"),
     "export": ("Board", "JSON dump of the board to stdout"),
-    "backup": ("Board", "consistent SQLite copy to PATH"),
-    "doctor": ("Board", "Python, SQLite, WAL, schema and board location checks"),
-    "config": ("Board", "read or set require_review, lease_minutes, prefix"),
+    "backup": ("Board", "consistent copy: DIR/earmark.db and DIR/files/"),
+    "doctor": ("Board", "Python, SQLite, WAL, schema, board location and attachment file checks"),
+    "config": ("Board", "read or set require_review, lease_minutes, max_attachment_mb, prefix"),
 }
 SUBCOMMANDS = {"topic": ("add", "edit", "mv", "rm"), "profile": ("show", "add", "edit", "rm")}
 
@@ -70,6 +74,7 @@ usage: earmark [--as HANDLE] [--db PATH] [--json] <command> [args]
   Read    topics  ls  show  comments  inbox
   Work    next  claim  release  review  approve  reject  done  move  reopen  cancel
   Write   new  edit  comment  link  unlink  assign  rank  delete
+  Files   attach  attachments  attachment  detach
   Topics  topic add | edit | mv | rm
   Team    join  leave  whoami  team  profiles  profile show | add | edit | rm  triage
   Board   init  info  wait  ui  export  backup  doctor  config
@@ -385,6 +390,8 @@ def b_comment(p):
                    help="note (default), progress, question")
     p.add_argument("--reply-to", metavar="ID", help="comment id this answers")
     p.add_argument("--edit", metavar="ID", help="replace the body of your comment ID")
+    p.add_argument("--attach", action="append", default=[], metavar="FILE",
+                   help="attach FILE to the new comment; repeatable")
 
 
 def b_link(p):
@@ -413,6 +420,28 @@ def b_rank(p):
 def b_delete(p):
     _key(p)
     p.add_argument("--yes", action="store_true", help="required: deletion cannot be undone")
+
+
+def b_attach(p):
+    _key(p)
+    p.add_argument("files", nargs="+", metavar="FILE", help="files to attach")
+    p.add_argument("--comment", metavar="ID", help="attach to comment ID of this issue")
+
+
+def b_attachments(p):
+    _key(p)
+
+
+def _attachment_id(p):
+    p.add_argument("id", metavar="ID", help="attachment id: @12 or 12")
+
+
+def b_attachment(p):
+    _attachment_id(p)
+    p.add_argument("--out", metavar="DEST", help="copy the file to DEST (a new file, or a directory)")
+
+
+b_detach = _attachment_id
 
 
 def b_topic(p):
@@ -451,7 +480,11 @@ def b_none(p):
     pass
 
 
-b_whoami = b_team = b_profiles = b_triage = b_info = b_export = b_doctor = b_none
+b_whoami = b_team = b_profiles = b_triage = b_info = b_export = b_none
+
+
+def b_doctor(p):
+    p.add_argument("--fix", action="store_true", help="remove attachment files no row references")
 
 
 def b_profile(p):
@@ -505,11 +538,12 @@ def b_ui(p):
 
 
 def b_backup(p):
-    p.add_argument("path", metavar="PATH", help="destination file")
+    p.add_argument("path", metavar="DIR", help="destination directory (created when missing)")
 
 
 def b_config(p):
-    p.add_argument("key", nargs="?", metavar="KEY", help="require_review, lease_minutes, prefix")
+    p.add_argument("key", nargs="?", metavar="KEY",
+                   help="require_review, lease_minutes, max_attachment_mb, prefix")
     p.add_argument("value", nargs="?", metavar="VALUE")
 
 
