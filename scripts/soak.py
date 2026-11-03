@@ -55,6 +55,7 @@ from collections import Counter, defaultdict
 REPO = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 LINUX = sys.platform.startswith("linux")
 JOURNAL_SIZE_LIMIT = 8 * 1024 * 1024  # PRAGMA journal_size_limit set by earmark/db.py
+WAL_PEAK_FACTOR = 4  # the largest WAL file the invariant accepts, as a multiple of that limit
 
 AREAS = ["api", "engine", "ui-ux", "audio", "text-content", "tools"]
 TOPICS = ["api/auth", "api/matchmaking", "engine/rendering", "engine/physics", "ui-ux/hud",
@@ -831,7 +832,11 @@ def _soak(args, workdir: str) -> dict:
     inv["unexpected_samples"] = [u for o in outcomes for u in o["unexpected"]][:20]
     inv["agent_errors"] = [o["error"] for o in outcomes if o["error"]][:5]
     inv["agents_hung"] = hung
-    inv["wal_bounded"] = monitor.wal_max <= JOURNAL_SIZE_LIMIT
+    # SQLite truncates the WAL to journal_size_limit when it restarts the log, so the file can
+    # pass the limit while readers keep it from restarting; bounded = back at or under the
+    # limit after the run and never past WAL_PEAK_FACTOR times it.
+    inv["wal_bounded"] = (_size(db + "-wal") <= JOURNAL_SIZE_LIMIT
+                          and monitor.wal_max <= WAL_PEAK_FACTOR * JOURNAL_SIZE_LIMIT)
     if inv["busy_exit_5"] or inv["unexpected_exit_codes"] or inv["agent_errors"] or hung \
             or not inv["wal_bounded"]:
         inv["ok"] = False
@@ -1243,8 +1248,8 @@ def print_soak(res: dict, out) -> None:
           f"{inv['done_exactly_once']}/{inv['status_counts'].get('done', 0)} · double claims "
           f"{inv['double_claims']} · overlapping holds {inv['overlapping_holds']} · takeovers "
           f"{inv['takeovers']} · comment ids unique {inv['comment_ids_unique']:,}/"
-          f"{inv['comment_ids_printed']:,} · WAL max {size(d['wal_max'])} (limit "
-          f"{size(d['wal_limit'])})", file=out)
+          f"{inv['comment_ids_printed']:,} · WAL max {size(d['wal_max'])}, at the end "
+          f"{size(d['wal_after'])} (journal_size_limit {size(d['wal_limit'])})", file=out)
     for p in inv["problems"][:10]:
         print(f"  problem: {p}", file=out)
     for u in inv["unexpected_samples"][:10]:
