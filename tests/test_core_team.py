@@ -390,6 +390,7 @@ class Triage(BoardCase):
 class WaitCheck(BoardCase):
     def test_modes(self):
         w1, r1 = self.agent("w1"), self.agent("r1", "reviewer")
+        self.issue("parked", status="backlog")  # open, so the board is not empty
         self.assertIsNone(w1.wait_check("any"))
         key = self.issue("x")["key"]
         work = {"reason": "work", "key": key, "title": "x"}
@@ -403,6 +404,34 @@ class WaitCheck(BoardCase):
         self.assertEqual(r1.wait_check("any"), {"reason": "changes", "count": 1})  # the mention
         self.assertEqual(r1.wait_check("inbox"), {"reason": "changes", "count": 1})  # the old name
         self.assertIsNone(w1.wait_check("any"))
+
+    def test_an_empty_board_wakes_every_mode(self):
+        """Live-test repro: on-duty agents slept on a board with nothing left open."""
+        b = self.board
+        w1, r1, pm = self.agent("w1"), self.agent("r1", "reviewer"), self.agent("pm-1", "pm")
+        empty = {"reason": "board", "open_issues": 0}
+        for agent in (w1, r1, pm):
+            for mode in ("work", "review", "changes", "any", "inbox"):
+                self.assertEqual(agent.wait_check(mode), empty, mode)
+        key = self.issue("last one")["key"]
+        b.assign(key, "w1")
+        w1.check()
+        pm.check()
+        self.assertIsNone(w1.wait_check("changes"))
+        self.assertIsNone(r1.wait_check("any"))
+        w1.claim(key)
+        w1.submit_review(key, note="ready")
+        r1.claim(key)
+        r1.approve(key)  # the last open issue closes
+        self.assertEqual(w1.wait_check("any"), {"reason": "changes", "count": 1})  # its feed first
+        w1.check()
+        self.assertEqual(w1.wait_check("any"), empty)
+        self.assertEqual(r1.wait_check("review"), empty)
+        self.assertEqual(pm.wait_check("changes"), {"reason": "changes", "count": 1})
+        pm.check()
+        self.assertEqual(pm.wait_check("changes"), empty)
+        b.reopen(key, note="one more thing")
+        self.assertEqual(r1.wait_check("review"), None)
 
     def test_changes_follow_the_check_cursor(self):
         """check, then wait: what check reported never wakes the wait again; a new change does."""

@@ -129,10 +129,27 @@ class WaitTests(LauncherCase):
         self.run_ok("join", "worker", "--as", "w-1")
 
     def test_timeout_is_exit_4(self):
+        self.run_ok("new", "Someday", "--status", "backlog", "--as", "hector")  # open, not ready
         started = time.monotonic()
         proc = self.run_cli("wait", "--timeout", "1s", "--interval", "0.2", "--as", "w-1")
         self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (4, "wait: nothing new in 1s · for: any\n", ""))
         self.assertLess(time.monotonic() - started, 15)
+
+    def test_an_empty_board_ends_the_wait(self):
+        proc = self.run_cli("wait", "--timeout", "30s", "--interval", "0.1", "--as", "w-1")
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (0, "wait: board · no open issues\n", ""))
+        self.run_ok("new", "Last", "--as", "hector")
+        self.run_ok("move", "1", "blocked", "--as", "hector")
+        waiter = subprocess.Popen([sys.executable, LAUNCHER, "wait", "--for", "work", "--timeout", "60s",
+                                   "--interval", "0.1", "--as", "w-1"], cwd=self.tmp,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                  env=clean_env(), encoding="utf-8")
+        self.addCleanup(lambda: waiter.poll() is None and waiter.kill())
+        time.sleep(0.5)
+        self.assertIsNone(waiter.poll(), "one issue is open, though blocked")
+        self.run_ok("cancel", "1", "-m", "dropped", "--as", "hector")
+        out, err = waiter.communicate(timeout=30)
+        self.assertEqual((waiter.returncode, out, err), (0, "wait: board · no open issues\n", ""))
 
     def test_arrival_from_another_process(self):
         self.run_ok("new", "Talk", "--as", "hector")
