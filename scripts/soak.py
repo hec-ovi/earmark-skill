@@ -1099,6 +1099,7 @@ def _reads(args, workdir: str) -> dict:
         "show": lambda i: ["show", with_comments[(i * 7) % len(with_comments)]],
         "comments --new": lambda i: ["comments", with_comments[i], "--new"],
         "inbox": lambda i: ["inbox"],
+        "check --peek": lambda i: ["check", "--peek"],
         "ls (no wrapper)": lambda i: ["ls"],
     }
     env = cli_env()
@@ -1120,7 +1121,7 @@ def _reads(args, workdir: str) -> dict:
             if name in ("comments --new", "inbox"):
                 returned[name].append(int(m.group(1)) if m else len(
                     re.findall(r"^\S*\s*#\d+\s", r["out"], re.MULTILINE)))
-            elif name.startswith("ls"):
+            elif name.startswith(("ls", "check")):
                 returned[name].append(sum(1 for line in r["out"].splitlines()
                                           if line.startswith(prefix)))
 
@@ -1144,6 +1145,8 @@ def _reads(args, workdir: str) -> dict:
         "comments --new": timed(lambda: reader.list_comments(show_key, since=0)),
         "inbox": timed(lambda: reader.inbox(peek=True)),
     }
+    if hasattr(reader, "check"):
+        inproc["check --peek"] = timed(lambda: reader.check(peek=True))
     inproc["ls (no wrapper)"] = inproc["ls"]
     reader.close()
     table = {}
@@ -1152,8 +1155,8 @@ def _reads(args, workdir: str) -> dict:
         wr = [r["written"] for r in rows if r["written"] is not None]
         cn = [r["cancelled"] for r in rows if r["cancelled"] is not None]
         table[name] = {"n": len(rows), "p50_ms": pct(ms, 50), "p95_ms": pct(ms, 95),
-                       "max_ms": max(ms), "inproc_p50_ms": pct(inproc[name], 50),
-                       "inproc_p95_ms": pct(inproc[name], 95),
+                       "max_ms": max(ms), "inproc_p50_ms": pct(inproc.get(name, []), 50),
+                       "inproc_p95_ms": pct(inproc.get(name, []), 95),
                        "written_per_call": (sum(wr) / len(wr)) if wr else None,
                        "net_per_call": ((sum(wr) - sum(cn)) / len(rows)) if wr and cn else None,
                        "rss_max_kib": max(r["rss_kb"] for r in rows),
