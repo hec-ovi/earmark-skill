@@ -763,12 +763,43 @@ def render_whoami(res: dict, *, style: Style = PLAIN, day: str | None = None) ->
 TRIAGE_SECTIONS = (("backlog", "untriaged backlog"), ("unassigned", "unassigned todo"),
                    ("stale", "stale claims"), ("review_queue", "review queue"),
                    ("blocked", "blocked"), ("overdue", "overdue"))
+# the call that lists a whole section when triage cuts it
+TRIAGE_MORE = {"backlog": "earmark ls -s backlog", "unassigned": "earmark ls -s todo -a none",
+               "stale": "earmark ls --stale", "review_queue": "earmark ls -s in_review",
+               "blocked": "earmark ls --blocked", "overdue": "earmark ls --overdue",
+               "idle_agents": "earmark team"}
+# columns every row of a section shares by definition
+TRIAGE_FIXED = {"backlog": ("status",), "unassigned": ("status", "assignee"),
+                "review_queue": ("status",)}
+TRIAGE_KEEP = ("key", "title", "flags")
+
+
+def _varying(name: str, items: list[dict], fields: list[str]) -> list[str]:
+    """Drop the columns that say the same thing on every row of a section."""
+    out = []
+    for f in fields:
+        if f in TRIAGE_KEEP:
+            out.append(f)
+            continue
+        if f in TRIAGE_FIXED.get(name, ()):
+            continue
+        values = {dash(LS_COLUMNS[f][1](i)) for i in items}
+        if len(items) > 1 and len(values) == 1:
+            continue
+        out.append(f)
+    return out
+
+
+def _more(name: str, total: int, shown: int) -> list[str]:
+    return [f"+{total - shown} more: {TRIAGE_MORE[name]}"] if total > shown else []
 
 
 def render_triage(res: dict, *, style: Style = PLAIN, day: str | None = None,
                   now: float | None = None) -> str:
     """PM view: one counts line, then an aligned table per non-empty section (issues with the
-    ls columns, review queue adds WAITING, stale claims add LEASE; idle agents like `team`)."""
+    ls columns minus those constant in the section, review queue adds WAITING, stale claims add
+    LEASE; idle agents like `team`). A section cut by the board's limit ends with
+    `+N more: <the earmark ls call that lists it>`."""
     if not isinstance(res, dict):
         return dash(res)
     counts = res.get("counts") or {}
@@ -783,15 +814,15 @@ def render_triage(res: dict, *, style: Style = PLAIN, day: str | None = None,
         if not items:
             continue
         total = counts.get(name, len(items))
-        shown = f" (showing {len(items)})" if total > len(items) else ""
-        out += ["", f"{label} ({total}){shown}:"]
+        out += ["", f"{label} ({total}):"]
         fields = list(base)
         if name == "review_queue":
             items = [dict(i, waiting=ago(since.get(i.get("key")), now)) for i in items]
             fields.insert(fields.index("assignee") + 1, "waiting")
         elif name == "stale":
             fields.insert(fields.index("assignee") + 1, "lease_until")
-        out += summary_rows(items, style=style, day=day, fields=fields)
+        out += summary_rows(items, style=style, day=day, fields=_varying(name, items, fields))
+        out += _more(name, total, len(items))
     idle = res.get("idle_agents") or []
     if idle:
         total = counts.get("idle_agents", len(idle))
@@ -801,6 +832,7 @@ def render_triage(res: dict, *, style: Style = PLAIN, day: str | None = None,
         cols = [("HANDLE", style.bold), ("ROLE", None), ("PROFILE", None), ("CLI", None),
                 ("SEEN", None), ("STATE", None)]
         out += table(cols, rows, style)
+        out += _more("idle_agents", total, len(idle))
     if all(not res.get(n) for n, _ in TRIAGE_SECTIONS) and not idle:
         out.append("nothing to triage")
     return "\n".join(out)

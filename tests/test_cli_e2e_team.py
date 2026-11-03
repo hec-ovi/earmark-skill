@@ -122,7 +122,14 @@ class TeamTests(CliBoardCase):
         self.assertIn("untriaged backlog (1):", out)
         self.assertIn("overdue (1):", out)
         header = out[out.index("unassigned todo (2):") + 1]
-        self.assertEqual(header.split(), ["KEY", "STATUS", "PRIO", "TYPE", "ASSIGNEE", "TOPIC", "TITLE"])
+        self.assertEqual(header.split(), ["KEY", "PRIO", "TITLE"])  # the rest is the same on both rows
+        for n in range(12):
+            self.ok("new", f"More {n}", as_="hector")
+        out = self.ok("triage", "--limit", "3", as_="hector").splitlines()
+        i = out.index("unassigned todo (14):")
+        self.assertEqual(out[i + 5], "+11 more: earmark ls -s todo -a none")
+        self.assertEqual(self.ok("ls", "-s", "todo", "-a", "none", "--count"), "14\n")
+        self.fails(1, "triage", "--limit", "0", as_="hector")
         self.assertFalse(any("=" in ln for ln in out), out)
         if "idle agents (1):" in out:
             i = out.index("idle agents (1):")

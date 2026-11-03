@@ -300,21 +300,39 @@ class MiscTests(unittest.TestCase):
         out = R.render_triage(res, day=DAY, now=TEAM_NOW).splitlines()
         self.assertEqual(out[0], "triage: untriaged backlog 0 · unassigned todo 1 · stale claims 1 · "
                                  "review queue 1 · blocked 0 · overdue 0 · idle agents 1")
-        self.assertEqual(out[1:5], ["", "unassigned todo (1):",
-                                    "KEY      STATUS  PRIO    TYPE  ASSIGNEE  TOPIC              TITLE",
-                                    "GAME-51  todo    medium  task  -         ui-ux/video-calls  Mute button state"])
+        self.assertEqual(out[1:5], ["", "unassigned todo (1):",  # status and assignee go without saying
+                                    "KEY      PRIO    TYPE  TOPIC              TITLE",
+                                    "GAME-51  medium  task  ui-ux/video-calls  Mute button state"])
         self.assertEqual(out[6], "stale claims (1):")
         self.assertEqual(out[7].split()[:7], ["KEY", "STATUS", "PRIO", "TYPE", "ASSIGNEE", "LEASE", "TOPIC"])
         self.assertTrue(out[8].endswith("Eye color widget resets on reload  stale"))
         self.assertEqual(out[10], "review queue (1):")
-        self.assertEqual(out[11].split(), ["KEY", "STATUS", "PRIO", "TYPE", "ASSIGNEE", "WAITING", "TOPIC", "TITLE"])
-        self.assertEqual(out[12].split()[:6], ["GAME-42", "in_review", "high", "bug", "claude-ui", "2h"])
+        self.assertEqual(out[11].split(), ["KEY", "PRIO", "TYPE", "ASSIGNEE", "WAITING", "TOPIC", "TITLE"])
+        self.assertEqual(out[12].split()[:5], ["GAME-42", "high", "bug", "claude-ui", "2h"])
         self.assertEqual(out[14:], ["idle agents (1):", "HANDLE   ROLE    PROFILE  CLI   SEEN  STATE",
                                     "grok-pm  worker  worker   grok  1h    idle"])
         self.assertFalse(any("=" in ln for ln in out))
         empty = {k: [] for k in ("backlog", "unassigned", "stale", "review_queue", "blocked",
                                  "overdue", "idle_agents")}
         self.assertEqual(R.render_triage(empty).splitlines()[-1], "nothing to triage")
+
+    def test_triage_cut_sections_name_the_full_call(self):
+        rows = [summary(key=f"GAME-{n}", id=n, status="todo", assignee=None, priority="high",
+                        topic=f"t{n % 2}", comment_count=0, due=None) for n in range(1, 11)]
+        res = {"unassigned": rows, "stale": rows[:2], "overdue": rows[:1], "blocked": rows[:3],
+               "backlog": rows[:2], "review_queue": [],
+               "idle_agents": [{"handle": "a", "presence": "idle"}],
+               "counts": {"unassigned": 14, "stale": 5, "overdue": 1, "blocked": 4, "backlog": 9,
+                          "review_queue": 0, "idle_agents": 3}}
+        out = R.render_triage(res, day=DAY).splitlines()
+        more = [ln for ln in out if ln.startswith("+")]
+        self.assertEqual(more, ["+7 more: earmark ls -s backlog", "+4 more: earmark ls -s todo -a none",
+                                "+3 more: earmark ls --stale", "+1 more: earmark ls --blocked",
+                                "+2 more: earmark team"])
+        header = out[out.index("unassigned todo (14):") + 1]
+        self.assertEqual(header.split(), ["KEY", "TOPIC", "TITLE"])  # status, prio, type, assignee: same on all
+        self.assertEqual(out[out.index("overdue (1):") + 1].split(),
+                         ["KEY", "STATUS", "PRIO", "TYPE", "ASSIGNEE", "TOPIC", "TITLE"])
 
 
 if __name__ == "__main__":

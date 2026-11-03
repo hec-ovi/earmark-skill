@@ -83,5 +83,8 @@ def cmd_profile_rm(ctx: Context, a) -> Result:
 
 
 def cmd_triage(ctx: Context, a) -> Result:
-    res = ctx.board().triage()
+    if a.limit < 1:
+        from earmark.errors import InvalidRequest
+        raise InvalidRequest("triage: --limit N must be 1 or more")
+    res = ctx.board().triage(limit=a.limit)
     return Result(res, lambda: R.render_triage(res, style=ctx.style))

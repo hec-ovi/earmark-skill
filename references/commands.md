@@ -201,7 +201,7 @@ ui-ux                         UI & UX                   14 open
 | `earmark profiles` · `earmark profile show SLUG` | list · full prompt and scope |
 | `earmark profile add SLUG --role R --name N [--prompt T \| --prompt-file F] [-t PATH]…` | owner or pm |
 | `earmark profile edit SLUG […]` · `earmark profile rm SLUG` | owner or pm |
-| `earmark triage` | pm view: untriaged backlog, unassigned todo, stale claims, review queue age, blocked, overdue, idle agents |
+| `earmark triage [--limit N]` | pm view: untriaged backlog, unassigned todo, stale claims, review queue age, blocked, overdue, idle agents; at most N rows per section (default 10), a cut section ends with `+4 more: earmark ls -s todo -a none` (the call that lists it all); columns that are the same on every row are left out |
 
 ```
 check: nothing new since 14:05:09Z · holding GAME-1 (lease 1h40m) · todo for you: 9

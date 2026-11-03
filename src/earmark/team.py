@@ -222,10 +222,14 @@ class TeamMixin:
 
     # ---- triage, wait -------------------------------------------------------------------
 
-    def triage(self) -> dict:
+    def triage(self, *, limit: int = TRIAGE_LIMIT) -> dict:
         """PM view: {backlog, unassigned, stale, review_queue, review_since, blocked, overdue,
-        idle_agents, counts}. Lists hold IssueSummary (Agent for idle_agents), capped at 100.
-        idle_agents: online agents (not the human owner, not pms) working and reviewing nothing."""
+        idle_agents, counts}. Lists hold IssueSummary (Agent for idle_agents), at most `limit`
+        each; counts are the totals. idle_agents: online agents (not the human owner, not pms)
+        working and reviewing nothing."""
+        limit = int(limit)
+        if limit < 1:
+            raise InvalidRequest("limit must be at least 1")
         now = timeutil.now()
         now_ts = timeutil.iso(now)
         today = now.date().isoformat()
@@ -248,7 +252,7 @@ class TeamMixin:
                 counts[name] = conn.execute(f"SELECT count(*) FROM issues i WHERE {where}",
                                             params).fetchone()[0]
                 rows = conn.execute(f"SELECT i.id, i.review_requested_at FROM issues i WHERE {where} "
-                                    f"ORDER BY {order} LIMIT {TRIAGE_LIMIT}", params).fetchall()
+                                    f"ORDER BY {order} LIMIT ?", params + [limit]).fetchall()
                 out[name] = views.summaries(conn, self.prefix, [r[0] for r in rows], now_ts)
                 if name == "review_queue":
                     out["review_since"] = {self._key(r[0]): r[1] for r in rows}
@@ -256,8 +260,9 @@ class TeamMixin:
                 f"{views.AGENT_SELECT} WHERE a.online = 1 AND a.kind <> 'human' AND "
                 f"coalesce(p.role, '') <> 'pm' ORDER BY a.last_seen").fetchall()
             team = views.agents(conn, self.prefix, agents, now)
-        out["idle_agents"] = [a for a in team if not a["working"] + a["reviewing"]]
-        counts["idle_agents"] = len(out["idle_agents"])
+        idle = [a for a in team if not a["working"] + a["reviewing"]]
+        out["idle_agents"] = idle[:limit]
+        counts["idle_agents"] = len(idle)
         out["counts"] = counts
         return out
 

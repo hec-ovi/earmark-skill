@@ -480,7 +480,11 @@ def b_none(p):
     pass
 
 
-b_whoami = b_team = b_profiles = b_triage = b_info = b_export = b_none
+b_whoami = b_team = b_profiles = b_info = b_export = b_none
+
+
+def b_triage(p):
+    p.add_argument("--limit", type=int, default=10, metavar="N", help="rows per section (default 10)")
 
 
 def b_doctor(p):
