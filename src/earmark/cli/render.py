@@ -1023,11 +1023,16 @@ def check_parts(item: dict) -> list[str]:
             if item.get("blocks_open"):
                 parts.append(f"blocks:{item['blocks_open']}")
     comments, questions = item.get("comments") or 0, item.get("questions") or 0
-    asked = "question for you" if questions == 1 else f"{questions} questions for you"
+    mentions = item.get("mentions") or 0
+    calls = []  # a question addressed to you, then the other comments that @mention you
+    if questions:
+        calls.append("question for you" if questions == 1 else f"{questions} questions for you")
+    if mentions:
+        calls.append("mentions you" if mentions == 1 else f"{mentions} mention you")
     if comments:
-        parts.append(plural(comments, "new comment") + (f", {asked}" if questions else ""))
-    elif questions:
-        parts.append(asked)
+        parts.append(", ".join([plural(comments, "new comment"), *calls]))
+    elif calls:
+        parts.append(", ".join(calls))
     if item.get("files"):
         parts.append(plural(item["files"], "new file"))
     return parts or ["changed"]
