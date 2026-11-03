@@ -498,7 +498,8 @@ def serve(db_path: str | None, *, host: str = DEFAULT_HOST, port: int = DEFAULT_
                   file=sys.stderr, flush=True)
         print(f"earmark ui: {server.url}  (board {server.prefix}, Ctrl+C to stop)", flush=True)
         if open_browser:
-            threading.Thread(target=webbrowser.open, args=(server.url,), daemon=True).start()
+            threading.Thread(target=webbrowser.open, args=(server.url,), daemon=True,
+                             name="earmark-browser").start()
         server.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
         pass

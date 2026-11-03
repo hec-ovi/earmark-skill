@@ -265,6 +265,19 @@ class SSEReader:
         head, self.buf = self.buf.split(marker, 1)
         return head
 
+    def read_body(self, timeout: float = 5.0) -> bytes:
+        """The body of a non-stream response (an error), by Content-Length."""
+        length = int(self.headers.get("content-length", "0"))
+        deadline = time.monotonic() + timeout
+        while len(self.buf) < length and time.monotonic() < deadline:
+            self.sock.settimeout(max(0.01, deadline - time.monotonic()))
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                break
+            self.buf += chunk
+        body, self.buf = self.buf[:length], self.buf[length:]
+        return body
+
     def next_block(self, timeout: float = 5.0) -> str:
         return self._read_until(b"\n\n", timeout).decode("utf-8")
 
