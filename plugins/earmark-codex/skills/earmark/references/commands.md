@@ -2,6 +2,7 @@
 
 Global flags, valid on every command: `--as HANDLE` (actor; or `EARMARK_AS`), `--db PATH`
 (or `EARMARK_DB`), `--json` (envelope output). Keys accept `GAME-42`, `game-42` or `42`.
+Text output escapes control characters in user text (`\x1b`, `\n` in titles); `--json` is raw.
 Exit codes: 0 ok · 1 invalid · 2 not found · 3 conflict · 4 empty · 5 busy.
 
 ## Read, level by level
@@ -83,9 +84,28 @@ reporter, labels, due, parent, lease_until, stale, version, created_at, updated_
 review_requested_at, resolved_at, comment_count, last_comment_id, new_comments, attachment_count.
 Parts: `body` (alias `description`), `comments` (honours `--new`, `--since ID`, `--last N`;
 default the last 5), `attachments`, `links` (blocks, blocked by, duplicates, relates), `children`.
-`-c [N]` is short for adding `comments --last N` to whatever `-f` selects. With several keys and
-only scalar fields, output is one line per issue; with parts, each issue is a block separated by
-a blank line. `--json` returns the same selection as objects.
+`-c [N]` is short for adding `comments --last N` to whatever `-f` selects; `--new`, `--since` and
+`--last` add the comments part on their own (`--new` with `--last` is refused). With several keys,
+each issue starts with a key line carrying its scalar fields; parts follow as a block, and blocks
+are separated by a blank line:
+
+```
+GAME-8  status: in_review  assignee: claude-ui
+last 1 of 4 comments:
+#73  claude-ui  note  11-03 12:16  reply-to:#72  files:@11
+  It does, same anchor component. Added a spectator screenshot.
+
+GAME-2  status: done  assignee: claude-ui
+last 1 of 8 comments:
+#40  codex-review  approval  10-30 08:42
+  Verified both paths, including running the migration twice on the same save. Approved.
+```
+
+Comment parts are headed `N new comments:`, `N comments after #ID:` or `last N of M comments:`;
+empty ones read `comments: nothing new after #N`, `comments: nothing after #N` or
+`comments: none`; a cut part ends with `more: earmark comments KEY --new`. Unknown keys go to
+stderr (`error: no issue GAME-99`, exit 2) while the others still print. `--json` returns the
+same selection as objects (a list with several keys).
 
 ### `comments`
 
@@ -129,10 +149,13 @@ GAME-77 created in artwork/icons · assigned to codex-art · blocks GAME-42
 GAME-42 blocked, still yours · returns to your next when GAME-77 is done
 ```
 
-`next` prints the claimed issue in `show` format, then the comments you have not seen, so
-starting an issue is one call. `review`, `approve`, `reject`, `done` and `release` take `--next`
-to run `next` right after. Write commands and `next` end with `· N changes for you: earmark check`
-when your check feed has something. With nothing to claim (exit 4):
+`next` prints the claimed issue in `show` format, then `N new comments:` and the comments you
+have not seen, so starting an issue is one call. `review`, `approve`, `reject`, `done` and
+`release` take `--next`: the action's line, then `next`'s output, and the exit code is `next`'s
+(4 when nothing is left, though the action itself succeeded). Write commands and `next` end with
+`· N changes for you: earmark check` (`· 1 change for you` for one) when your check feed has
+something;
+`--json` puts the count in `meta.changes`. With nothing to claim (exit 4):
 `next: nothing ready in your scope · review queue: 3 · inbox: 2 new · stale: 0`.
 
 ## Write
@@ -201,7 +224,7 @@ ui-ux                         UI & UX                   14 open
 | `earmark profiles` · `earmark profile show SLUG` | list · full prompt and scope |
 | `earmark profile add SLUG --role R --name N [--prompt T \| --prompt-file F] [-t PATH]…` | owner or pm |
 | `earmark profile edit SLUG […]` · `earmark profile rm SLUG` | owner or pm |
-| `earmark triage [--limit N]` | pm view: untriaged backlog, unassigned todo, stale claims, review queue age, blocked, overdue, idle agents; at most N rows per section (default 10), a cut section ends with `+4 more: earmark ls -s todo -a none` (the call that lists it all); columns that are the same on every row are left out |
+| `earmark triage [--limit N]` | pm view: untriaged backlog, unassigned todo, stale claims, exhausted reviews (parked after `max_review_rounds` rejects), review queue age, blocked, overdue, idle agents; at most N rows per section (default 10), a cut section ends with `+4 more: earmark ls -s todo -a none` (the call that lists it all); columns that are the same on every row are left out |
 
 ```
 check: nothing new since 14:05:09Z · holding GAME-1 (lease 1h40m) · todo for you: 9
