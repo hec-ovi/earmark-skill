@@ -31,7 +31,7 @@ def tree(base: Path) -> dict[str, str]:
     return out
 
 
-@unittest.skipUnless(BASH, "bash not available")
+@unittest.skipUnless(BASH and os.name == "posix", "install.sh needs a POSIX shell and symlinks")
 class InstallTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="earmark-install-"))

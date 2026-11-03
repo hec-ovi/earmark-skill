@@ -36,7 +36,7 @@ def unquote(value: str) -> str:
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
     """The YAML subset skills use: `key: plain`, `key: >-` folded blocks, one nested map."""
-    lines = text.split("\n")
+    lines = text.replace("\r\n", "\n").split("\n")
     if lines[0] != "---":
         raise ValueError("must start with a --- line")
     end = lines.index("---", 1)
