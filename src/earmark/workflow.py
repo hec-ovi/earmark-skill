@@ -1,5 +1,6 @@
 """Status transitions, claims and leases, `next` (pick and claim in one transaction), `need`
-(file a blocker for another specialist and park the issue) and auto-unblock.
+(file a blocker for another specialist and park the issue), auto-unblock and the cap on review
+rounds (the max_review_rounds-th reject parks the issue in blocked for the owner or a pm).
 
 One timestamp per transaction: everything a write decides (stale or live, lease ends) reads tx.ts.
 An issue assigned to an agent that has left (agents.online = 0) counts as unassigned: anyone in
@@ -79,15 +80,40 @@ class WorkflowMixin:
             hint = f"earmark claim {self._key(row['id'])}" if target == "in_progress" else None
             raise InvalidRequest(f"{self._key(row['id'])} is already {target}", hint=hint)
         self._check_move(tx, row, target)
+        src, issue_id = row["status"], row["id"]
+        rounds, capped = None, False
+        if src == "in_review" and target == "todo":  # a reject: one more review round
+            rounds = self._review_rounds(tx.conn, issue_id) + 1
+            # the cap binds every `reject`; a `move` by the owner or a pm is their decision
+            capped = rounds >= self.max_review_rounds and (note_kind == "changes" or not tx.privileged)
+            if capped:
+                target = "blocked"
         if note and note.strip():
-            self._insert_comment(tx, row["id"], note.strip(), note_kind)
+            self._insert_comment(tx, issue_id, note.strip(), note_kind)
         takeover = (self._offline_assignee(tx, row)
-                    if target == "in_progress" and row["status"] != "in_review" else None)
+                    if target == "in_progress" and src != "in_review" else None)
         changes = self._status_changes(tx, row, target, takeover=takeover)
-        self._apply(tx, row["id"], changes)
-        self._status_events(tx, row, target, changes, takeover=takeover)
+        self._apply(tx, issue_id, changes)
+        self._status_events(tx, row, target, changes, takeover=takeover, rejected=rounds is not None)
+        if capped:
+            self._insert_comment(tx, issue_id, f"review rounds exhausted ({rounds}); the owner or "
+                                                f"a pm decides", "note")
+            self._event(tx, issue_id, "review_cap", None, str(rounds))
+        if tx.privileged and ((src == "in_review" and target == "done") or
+                              (src in model.CLOSED and target == "todo")):
+            spent = self._review_rounds(tx.conn, issue_id)
+            if spent:
+                self._event(tx, issue_id, "review_reset", str(spent), "0")
         if target in model.CLOSED:
-            self._unblock(tx, row["id"], target)
+            self._unblock(tx, issue_id, target)
+
+    @staticmethod
+    def _review_rounds(conn, issue_id: int) -> int:
+        """Rejects since the last review_reset (approve or reopen by the owner or a pm)."""
+        return conn.execute(
+            "SELECT count(*) FROM events WHERE issue_id = ? AND action = 'reject' AND id > "
+            "coalesce((SELECT max(id) FROM events WHERE issue_id = ? AND action = 'review_reset'), 0)",
+            (issue_id, issue_id)).fetchone()[0]
 
     def _unblock(self, tx: Tx, issue_id: int, resolution: str) -> list[int]:
         """Auto-unblock: the issues issue_id blocks that are `blocked` with no other open blocker
@@ -95,7 +121,7 @@ class WorkflowMixin:
         rows = tx.conn.execute(
             f"SELECT i.* FROM links k JOIN issues i ON i.id = k.dst WHERE k.src = ? "
             f"AND k.kind = 'blocks' AND i.status = 'blocked' AND NOT EXISTS ({views.OPEN_BLOCKER}) "
-            f"ORDER BY i.id", (issue_id,)).fetchall()
+            f"AND NOT ({views.REVIEW_CAPPED}) ORDER BY i.id", (issue_id,)).fetchall()
         for row in rows:
             changes = self._status_changes(tx, row, "todo")
             self._apply(tx, row["id"], changes)
@@ -178,7 +204,7 @@ class WorkflowMixin:
         return {k: v for k, v in changes.items() if k == "status" or row[k] != v}
 
     def _status_events(self, tx: Tx, row, target: str, changes: dict, *,
-                       takeover: str | None = None) -> None:
+                       takeover: str | None = None, rejected: bool = False) -> None:
         src, issue_id = row["status"], row["id"]
         self._event(tx, issue_id, "status", src, target)
         if takeover:
@@ -189,7 +215,7 @@ class WorkflowMixin:
             self._event(tx, issue_id, "review", None, row["assignee"])
         elif src == "in_review" and target == "done":
             self._event(tx, issue_id, "approve", None, tx.actor)
-        elif src == "in_review" and target == "todo":
+        elif src == "in_review" and (target == "todo" or rejected):
             self._event(tx, issue_id, "reject", None, row["assignee"])
         elif src in model.CLOSED and target == "todo":
             self._event(tx, issue_id, "reopen", src, target)

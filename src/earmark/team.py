@@ -274,9 +274,11 @@ class TeamMixin:
 
     def triage(self, *, limit: int = TRIAGE_LIMIT) -> dict:
         """PM view: {backlog, unassigned, offline, stale, review_queue, review_since, blocked,
-        overdue, idle_agents, counts}. Lists hold IssueSummary (Agent for idle_agents), at most
-        `limit` each, most urgent (effective priority) first; counts are the totals. offline:
-        open work assigned to agents that have left (anyone in scope may claim it).
+        review_cap, overdue, idle_agents, counts}. Lists hold IssueSummary (Agent for
+        idle_agents), at most `limit` each, most urgent (effective priority) first; counts are the
+        totals. offline: open work assigned to agents that have left (anyone in scope may claim
+        it). review_cap: issues parked in blocked because their review rounds ran out (the owner
+        or a pm decides); they are not repeated under blocked.
         idle_agents: online agents (not the human owner, not pms) working and reviewing nothing."""
         limit = int(limit)
         if limit < 1:
@@ -295,7 +297,8 @@ class TeamMixin:
                              "(i.lease_until IS NOT NULL AND i.lease_until < ?))", [now_ts],
                              "i.review_requested_at, i.id"),
             "blocked": (f"i.status NOT IN ('done', 'canceled') AND (i.status = 'blocked' OR "
-                        f"EXISTS ({views.OPEN_BLOCKER}))", [], urgent),
+                        f"EXISTS ({views.OPEN_BLOCKER})) AND NOT ({views.REVIEW_CAPPED})", [], urgent),
+            "review_cap": (views.REVIEW_CAPPED, [], urgent),
             "overdue": ("i.status NOT IN ('done', 'canceled') AND i.due_at IS NOT NULL AND "
                         "i.due_at < ?", [today], "i.due_at, i.priority, i.id"),
         }

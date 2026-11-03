@@ -73,6 +73,13 @@ class BoardBase:
             return model.DEFAULT_LEASE_MINUTES
 
     @property
+    def max_review_rounds(self) -> int:
+        try:
+            return int(self.meta.get("max_review_rounds", model.DEFAULT_MAX_REVIEW_ROUNDS))
+        except ValueError:
+            return model.DEFAULT_MAX_REVIEW_ROUNDS
+
+    @property
     def max_attachment_mb(self) -> int:
         try:
             return int(self.meta.get("max_attachment_mb", model.DEFAULT_MAX_ATTACHMENT_MB))

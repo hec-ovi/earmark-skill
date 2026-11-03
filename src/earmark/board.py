@@ -135,7 +135,8 @@ def _seed_board(conn, *, prefix: str, owner: str, require_review: bool) -> None:
     meta = {"prefix": prefix, "owner": owner, "created_at": ts,
             "require_review": "1" if require_review else "0",
             "lease_minutes": str(model.DEFAULT_LEASE_MINUTES),
-            "max_attachment_mb": str(model.DEFAULT_MAX_ATTACHMENT_MB)}
+            "max_attachment_mb": str(model.DEFAULT_MAX_ATTACHMENT_MB),
+            "max_review_rounds": str(model.DEFAULT_MAX_REVIEW_ROUNDS)}
     conn.executemany("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE "
                      "SET value = excluded.value", list(meta.items()))
     conn.executemany(

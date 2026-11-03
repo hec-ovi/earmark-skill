@@ -36,8 +36,10 @@ TRANSITIONS = {
     "canceled": ("todo",),
 }
 
-SETTINGS = ("require_review", "lease_minutes", "max_attachment_mb", "prefix")
+SETTINGS = ("require_review", "lease_minutes", "max_attachment_mb", "max_review_rounds", "prefix")
 DEFAULT_LEASE_MINUTES = 120
+DEFAULT_MAX_REVIEW_ROUNDS = 3
+MAX_REVIEW_ROUNDS = 100
 DEFAULT_MAX_ATTACHMENT_MB = 50
 MAX_ATTACHMENT_MB = 4096
 ATTACHMENT_KINDS = ("image", "audio", "video", "pdf", "text", "file")

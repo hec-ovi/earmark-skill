@@ -27,6 +27,10 @@ BLOCKS_OPEN = ("EXISTS (SELECT 1 FROM links k JOIN issues b ON b.id = k.dst WHER
 EFFECTIVE_PRIORITY = ("min(i.priority, coalesce((SELECT min(b.priority) FROM links k JOIN issues b "
                       "ON b.id = k.dst WHERE k.src = i.id AND k.kind = 'blocks' "
                       "AND b.status NOT IN ('done', 'canceled')), 4))")
+# i is blocked because its review rounds ran out (review_cap is newer than its last status move)
+REVIEW_CAPPED = ("i.status = 'blocked' AND coalesce((SELECT max(e.id) FROM events e WHERE "
+                 "e.issue_id = i.id AND e.action = 'review_cap'), 0) > coalesce((SELECT max(e.id) "
+                 "FROM events e WHERE e.issue_id = i.id AND e.action = 'status'), 0)")
 ACTIVE_MINUTES = 15
 
 

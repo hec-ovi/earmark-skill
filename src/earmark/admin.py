@@ -87,7 +87,8 @@ class AdminMixin:
 
     def _settings(self) -> dict:
         return {"require_review": self.require_review, "lease_minutes": self.lease_minutes,
-                "max_attachment_mb": self.max_attachment_mb, "prefix": self.prefix}
+                "max_attachment_mb": self.max_attachment_mb,
+                "max_review_rounds": self.max_review_rounds, "prefix": self.prefix}
 
     @staticmethod
     def _setting_value(name: str, value) -> str:
@@ -106,6 +107,13 @@ class AdminMixin:
             if not text.isdigit() or not 1 <= int(text) <= model.MAX_ATTACHMENT_MB:
                 raise InvalidRequest(f"max_attachment_mb must be a whole number of MB between 1 "
                                      f"and {model.MAX_ATTACHMENT_MB}")
+            return str(int(text))
+        if name == "max_review_rounds":
+            text = str(value).strip()
+            if not text.isascii() or not text.isdigit() or not 1 <= int(text) <= model.MAX_REVIEW_ROUNDS:
+                raise InvalidRequest(f"max_review_rounds must be a whole number between 1 and "
+                                     f"{model.MAX_REVIEW_ROUNDS} (the reject that reaches it parks "
+                                     f"the issue in blocked)")
             return str(int(text))
         return model.parse_prefix(value)
 

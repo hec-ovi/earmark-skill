@@ -191,6 +191,86 @@ class Transitions(BoardCase):
         self.assertEqual(w1.submit_review(key, note="ok")["version"], 3)
 
 
+class ReviewRounds(BoardCase):
+    def setUp(self):
+        super().setUp()
+        self.w1, self.r1 = self.agent("w1"), self.agent("r1", "reviewer")
+        self.pm = self.agent("pm-1", "pm")
+        self.key = self.issue("ping-pong")["key"]
+
+    def round(self, verdict: str = "reject", by=None):
+        self.w1.claim(self.key)
+        self.w1.submit_review(self.key, note="try this")
+        reviewer = by or self.r1
+        return (reviewer.reject(self.key, note="still broken") if verdict == "reject"
+                else reviewer.approve(self.key))
+
+    def test_the_third_reject_parks_the_issue_for_the_owner_or_a_pm(self):
+        self.assertEqual(self.round()["status"], "todo")
+        self.assertEqual(self.round()["status"], "todo")
+        capped = self.round()
+        self.assertEqual((capped["status"], capped["assignee"], capped["reviewer"], capped["lease_until"]),
+                         ("blocked", "w1", None, None))
+        last = self.board.list_comments(self.key, last=2)["items"]
+        self.assertEqual([(c["kind"], c["author"], c["body"]) for c in last],
+                         [("changes", "r1", "still broken"),
+                          ("note", "r1", "review rounds exhausted (3); the owner or a pm decides")])
+        log = actions(self.board, self.key)
+        self.assertEqual(log.count("reject"), 3)
+        self.assertEqual(log[-3:], ["status", "reject", "review_cap"])
+        triage = self.board.triage()
+        self.assertEqual([i["key"] for i in triage["review_cap"]], [self.key])
+        self.assertEqual((triage["counts"]["review_cap"], triage["blocked"]), (1, []))
+        with self.assertRaises(Empty):
+            self.w1.next()
+        self.pm.move(self.key, "todo")  # the pm decides: one more try
+        self.assertEqual(self.board.triage()["review_cap"], [])
+        again = self.round()  # still past the cap: every further reject comes back to the pm
+        self.assertEqual(again["status"], "blocked")
+        self.assertIn("exhausted (4)", self.board.list_comments(self.key, last=1)["items"][0]["body"])
+
+    def test_approve_or_reopen_by_owner_or_pm_resets_the_count(self):
+        self.round()
+        self.round()
+        self.assertEqual(self.round("approve", by=self.pm)["status"], "done")
+        reset = self.board.issue_events(self.key)[-1]
+        self.assertEqual((reset["action"], reset["old"], reset["new"], reset["actor"]),
+                         ("review_reset", "2", "0", "pm-1"))
+        self.board.reopen(self.key, note="regressed")
+        self.assertNotEqual(actions(self.board, self.key)[-1], "review_reset")  # nothing to reset
+        self.assertEqual(self.round()["status"], "todo")
+        self.assertEqual(self.round()["status"], "todo")
+        self.assertEqual(self.round()["status"], "blocked")
+        self.board.move(self.key, "done")
+        self.board.reopen(self.key, note="one more try")
+        self.assertEqual(actions(self.board, self.key)[-2:], ["reopen", "review_reset"])
+        self.assertEqual(self.round()["status"], "todo")
+
+    def test_a_reviewer_approve_does_not_reset(self):
+        self.round()
+        self.round()
+        self.round("approve")
+        self.w1.reopen(self.key, note="back")
+        self.assertEqual(self.round()["status"], "blocked")
+
+    def test_setting_moves_and_auto_unblock(self):
+        self.assertEqual(self.board.config("max_review_rounds"), {"max_review_rounds": 3})
+        self.assertEqual(self.board.config("max-review-rounds", "1"), {"max_review_rounds": 1})
+        for bad in ("0", "101", "two", "1.5"):
+            with self.assertRaises(InvalidRequest, msg=bad):
+                self.board.config("max_review_rounds", bad)
+        self.w1.claim(self.key)
+        self.w1.submit_review(self.key, note="ready")
+        self.assertEqual(self.r1.move(self.key, "todo")["status"], "blocked")  # a plain move is a reject
+        blocker = self.issue("blocker")["key"]
+        self.board.link(blocker, "blocks", self.key)
+        self.board.move(blocker, "done")
+        self.assertEqual(self.board.get_issue(self.key)["status"], "blocked")  # not auto-unblocked
+        self.pm.move(self.key, "in_review")
+        self.assertEqual(self.pm.move(self.key, "todo")["status"], "todo")  # a pm's own decision
+        self.assertEqual(actions(self.board, self.key).count("reject"), 2)
+
+
 class Leases(BoardCase):
     def setUp(self):
         super().setUp()

@@ -35,7 +35,8 @@ class Config(BoardCase):
     def test_get_and_set(self):
         b = self.board
         self.assertEqual(b.config(), {"require_review": True, "lease_minutes": 120,
-                                      "max_attachment_mb": 50, "prefix": "GAME"})
+                                      "max_attachment_mb": 50, "max_review_rounds": 3,
+                                      "prefix": "GAME"})
         self.assertEqual(b.config("lease-minutes"), {"lease_minutes": 120})
         self.assertEqual(b.config("lease_minutes", "45"), {"lease_minutes": 45})
         self.assertEqual(b.config("lease_minutes", "2h"), {"lease_minutes": 120})
