@@ -51,6 +51,7 @@ class BoardBase:
         self.actor = None
         self.meta: dict[str, str] = {}
         self._seen_checked: str | None = None
+        self.join_action: str | None = None  # 'join' | 'rejoin' after join()
         self._load_meta()
         self.set_actor(actor)
 

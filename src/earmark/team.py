@@ -197,7 +197,9 @@ class TeamMixin:
     # ---- join, leave, whoami ------------------------------------------------------------
 
     def join(self, profile: str, *, handle: str | None = None, cli: str | None = None) -> dict:
-        """Briefing: {agent, profile, scope, assigned, inbox_new, loop, board}."""
+        """Briefing: {agent, profile, scope, assigned, inbox_new, loop, board}. Without a handle,
+        resumes the seat its CLI left (see _resumable_handle), else mints <profile>-<n>.
+        `join_action` is then 'join' or 'rejoin' (an offline agent came back)."""
         from earmark import db
 
         slug = model.parse_slug(profile)
@@ -209,7 +211,7 @@ class TeamMixin:
             self._profile(conn, slug)
             now = timeutil.now()
             ts = timeutil.iso(now)
-            me = wanted or self._free_handle(conn, slug)
+            me = wanted or self._resumable_handle(conn, slug, cli) or self._free_handle(conn, slug)
             existing = conn.execute("SELECT handle, profile, cli, online FROM agents "
                                     "WHERE handle = ?", (me,)).fetchone()
             action = "join"
@@ -224,9 +226,23 @@ class TeamMixin:
             tx = Tx(conn, me, now, ts, None, me == self.owner, self.lease_minutes, self.require_review)
             used_cli = cli or (existing["cli"] if existing else None)
             self._event(tx, None, action, None, f"{slug} cli={used_cli}" if used_cli else slug)
-            self._start_check_cursor(conn, me, ts)
+            self._start_check_cursor(conn, me, ts, keep=action == "rejoin")
         self.set_actor(me)
+        self.join_action = action
         return self._briefing(me)
+
+    @staticmethod
+    def _resumable_handle(conn, slug: str, cli: str | None) -> str | None:
+        """`join PROFILE --cli C` without a handle resumes the seat a session of the same CLI
+        left: the most recently seen offline agent with this profile and this CLI, so its
+        cursors, assigned work and history carry over. Never an online agent, never a handle from
+        another CLI or profile; None (mint a new handle) when there is no such seat or no CLI."""
+        if not cli:
+            return None
+        row = conn.execute("SELECT handle FROM agents WHERE kind = 'agent' AND online = 0 AND "
+                           "profile = ? AND cli = ? ORDER BY last_seen DESC, joined_at DESC, "
+                           "handle LIMIT 1", (slug, cli)).fetchone()
+        return row[0] if row else None
 
     @staticmethod
     def _check_rejoin(existing, slug: str, cli: str | None) -> None:
@@ -249,15 +265,18 @@ class TeamMixin:
                                 "profile": existing["profile"]})
 
     @staticmethod
-    def _start_check_cursor(conn, handle: str, ts: str) -> None:
-        """The `check` feed starts at the current heads (created when missing)."""
+    def _start_check_cursor(conn, handle: str, ts: str, *, keep: bool = False) -> None:
+        """The `check` feed starts at the current heads (created when missing). keep (a rejoin:
+        an agent that left comes back) leaves an existing cursor where it was, so its first
+        `check` reports what others changed while it was away."""
+        conflict = ("DO NOTHING" if keep else
+                    "DO UPDATE SET last_comment_id = excluded.last_comment_id, "
+                    "last_event_id = excluded.last_event_id, updated_at = excluded.updated_at")
         conn.execute(
             "INSERT INTO cursors(agent, scope, last_comment_id, last_event_id, updated_at) "
             "SELECT ?, 'check', (SELECT coalesce(max(id), 0) FROM comments), "
             "(SELECT coalesce(max(id), 0) FROM events), ? WHERE 1 "
-            "ON CONFLICT(agent, scope) DO UPDATE SET last_comment_id = excluded.last_comment_id, "
-            "last_event_id = excluded.last_event_id, updated_at = excluded.updated_at",
-            (handle, ts))
+            f"ON CONFLICT(agent, scope) {conflict}", (handle, ts))
 
     @staticmethod
     def _free_handle(conn, slug: str) -> str:
