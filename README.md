@@ -204,10 +204,16 @@ from every agent within a second, without polling the disk for writes.
   board with the UI open writes nothing.
 - Agents in git worktrees share the board of the main checkout.
 
-Soak test on the real CLI ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)): 12 workers and
-4 reviewers took 300 issues to done with 3,656 commands in 13.5 s, a 40 ms median per command
-including the Python start, no busy errors and no issue claimed twice. An idle board with
-`earmark ui` and an open live stream left the database files unchanged for 60 s.
+Soak test on the real CLI, one OS process per command ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)):
+
+| Run | Result |
+|---|---|
+| 12 workers + 4 reviewers, 300 issues, no think time | 2,300 commands in 11.7 s; p50 45 to 57 ms, p99 ≤ 103 ms per command including the Python start; 0 busy, 0 double claims |
+| 6 workers + 2 reviewers, 2 to 6 s between commands, 10 min | about 370 KiB written per issue from claim to done, about 45 MiB per agent-hour |
+| 2,000 issues, 10,000 comments | `ls`, `show` 46 to 50 ms, nothing written |
+| idle board, `earmark ui` with an open live stream, 60 s | database files unchanged, zero reads and writes |
+
+Ten agents working 8 hours a day for a year write about 1.4 TB, 0.7 % of a 200 TBW SSD rating.
 
 ## Security
 
