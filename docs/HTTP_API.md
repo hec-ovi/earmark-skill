@@ -9,8 +9,9 @@ The HTTP status follows `src/earmark/errors.py`: `invalid_request`, `identity_re
 
 Requests act as the board owner. Every non-GET request with a body must send `X-Earmark: 1`
 and `Content-Type: application/json` (an upload sends the file's type). The server rejects a `Host` other than
-`127.0.0.1:<port>` or `localhost:<port>`, refuses writes whose `Origin` is another site, and
-sends no CORS headers.
+`127.0.0.1:<port>` or `localhost:<port>`, refuses writes whose `Origin` is another site, refuses any
+`/api/*` request whose `Sec-Fetch-Site` is `cross-site` or `same-site` (other localhost ports
+included) and an `/api/stream` request with a foreign `Origin`, and sends no CORS headers.
 
 ## Shapes
 
@@ -62,7 +63,7 @@ comment ones included); `Comment` adds `attachments: [Attachment]`.
 
 | Method | Path | Body / query | Returns |
 |---|---|---|---|
-| GET | `/api/board` | | `{prefix, owner, settings: {require_review, lease_minutes, max_attachment_mb}, counts: {by_status, open, total}, enums: {statuses, priorities, types, comment_kinds, roles, link_kinds}, version}` |
+| GET | `/api/board` | | `{prefix, owner, settings: {require_review, lease_minutes, max_attachment_mb, max_review_rounds}, counts: {by_status, open, total}, enums: {statuses, priorities, types, comment_kinds, roles, link_kinds}, version}` |
 | GET | `/api/topics` | `?all=1` includes archived | `[Topic]` roots with children |
 | POST | `/api/topics` | `{path, name?, icon?, description?}` | `Topic` |
 | PATCH | `/api/topics/{id}` | `{name?, icon?, description?, path?, position?, archived?}` | `Topic` |
@@ -70,7 +71,7 @@ comment ones included); `Comment` adds `attachments: [Attachment]`.
 | GET | `/api/issues` | query mirrors `earmark ls`: `topic` (repeatable), `exact`, `status`, `priority`, `type`, `assignee`, `reviewer`, `reporter`, `label` (repeatable), `q`, `due_before`, `overdue`, `updated_since`, `created_since`, `ready`, `blocked`, `stale`, `parent`, `sort`, `desc`, `limit`, `offset` | `{items: [IssueSummary], total, limit, offset}` |
 | POST | `/api/issues` | `{title, body?, topic?, priority?, type?, status?, labels?, due?, parent?, assignee?}` | `Issue` |
 | GET | `/api/issues/{key}` | | `Issue` |
-| PATCH | `/api/issues/{key}` | `{version, title?, body?, topic?, priority?, type?, due?, labels?, parent?}` | `Issue`; 409 with current `Issue` in `error.details` |
+| PATCH | `/api/issues/{key}` | `{version, title?, body?, topic?, priority?, type?, due?, labels?, parent?}` | `Issue`; 409 with the current `Issue` plus `current_version`, `events_since` and `holder` in `error.details` |
 | POST | `/api/issues/{key}/status` | `{status, note?}` | `Issue` |
 | POST | `/api/issues/{key}/assign` | `{assignee: handle\|null}` | `Issue` |
 | POST | `/api/issues/{key}/rank` | `{before?: key, after?: key, top?: true, bottom?: true}` | `Issue` |
@@ -83,7 +84,7 @@ comment ones included); `Comment` adds `attachments: [Attachment]`.
 | GET | `/api/issues/{key}/attachments` | | `[Attachment]` |
 | POST | `/api/issues/{key}/attachments` | raw file bytes as the body; `?name=<file name>&comment=<id>`; `Content-Type` = the file's type; `X-Earmark: 1`; up to `max_attachment_mb` | `Attachment` |
 | GET | `/api/attachments/{id}` | | `Attachment` |
-| GET | `/api/attachments/{id}/raw` | `Range` supported (206) for audio/video seeking | the bytes: inline for images (not SVG), audio, video, PDF and plain text; everything else as a download. Always `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `ETag` = sha256, `Cache-Control: private, max-age=31536000, immutable` |
+| GET | `/api/attachments/{id}/raw` | `Range` supported (206) for audio/video seeking | the bytes: inline for images (not SVG), audio, video and plain text; everything else, PDF included (the sandbox policy blocks browser PDF viewers), as a download. Always `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`, `ETag` = sha256, `Cache-Control: private, max-age=31536000, immutable` |
 | DELETE | `/api/attachments/{id}` | | `{deleted: id}` |
 | GET | `/api/issues/{key}/events` | | `[Event]` |
 | GET | `/api/activity` | `?since=EVENT_ID&limit=N` | `{items: [Event], last_id}` newest first |
