@@ -24,5 +24,5 @@ Edits
     (the strict CSP forbids the inline import map a bare specifier would need).
   - All three: the trailing `//# sourceMappingURL=` comment is removed (maps are not shipped).
 
-Custom symbols in icons.svg (status half-circle, priority bars, urgent square, brand mark) are
+Custom symbols in icons.svg (status half-circle, urgent priority square, brand mark) are
 original drawings defined in scripts/build-icons.py and share the project's MIT license.

@@ -180,21 +180,23 @@ function filterSpec(key) {
   const f = state.filters;
   if (key === 'status') {
     return {
-      label: 'Status', icon: 'circle-dot', multi: true, values: f.status,
+      label: 'Status', icon: 'workflow', multi: true, values: f.status,
+      chipIcon: f.status.length === 1 ? html`<${StatusIcon} status=${f.status[0]} size=${13} />` : null,
       items: STATUS_KEYS.map((s) => ({ value: s, label: STATUS[s].label, iconNode: html`<${StatusIcon} status=${s} size=${15} />` })),
       summary: f.status.length === 1 ? STATUS[f.status[0]].label : f.status.length ? `${f.status.length} statuses` : null,
     };
   }
   if (key === 'priority') {
     return {
-      label: 'Priority', icon: 'pri-high', multi: true, values: f.priority,
+      label: 'Priority', icon: 'flag', multi: true, values: f.priority,
+      chipIcon: f.priority.length === 1 ? html`<${PriorityIcon} priority=${f.priority[0]} size=${13} />` : null,
       items: PRIORITY_KEYS.map((p) => ({ value: p, label: PRIORITY[p].label, iconNode: html`<${PriorityIcon} priority=${p} size=${15} />` })),
       summary: f.priority.length === 1 ? PRIORITY[f.priority[0]].label : f.priority.length ? `${f.priority.length} priorities` : null,
     };
   }
   if (key === 'type') {
     return {
-      label: 'Type', icon: 'tag', multi: true, values: f.type,
+      label: 'Type', icon: 'shapes', multi: true, values: f.type,
       items: TYPE_KEYS.map((t) => ({ value: t, label: TYPE[t].label, icon: TYPE[t].icon })),
       summary: f.type.length === 1 ? TYPE[f.type[0]].label : f.type.length ? `${f.type.length} types` : null,
     };
@@ -253,7 +255,7 @@ function FilterChip({ fkey }) {
   return html`<span class=${cx('fchip', on && 'is-on')}>
     <button type="button" class="fchip-main" aria-haspopup="menu" onClick=${open}
       title=${on ? `${spec.label}: ${spec.summary}` : `Filter by ${spec.label.toLowerCase()}`}>
-      <${Icon} name=${spec.icon} size=${13} />
+      ${spec.chipIcon || html`<${Icon} name=${spec.icon} size=${13} />`}
       <span class="fchip-label">${spec.label}</span>
       ${on ? html`<span class="fchip-val">${spec.summary}</span>` : html`<${Icon} name="chevron-down" size=${12} cls="fchip-caret" />`}
     </button>
@@ -263,7 +265,7 @@ function FilterChip({ fkey }) {
 }
 
 const SORTS = [
-  { value: 'priority', label: 'Priority', icon: 'pri-high' },
+  { value: 'priority', label: 'Priority', icon: 'flag' },
   { value: 'updated', label: 'Last updated', icon: 'history' },
   { value: 'created', label: 'Created', icon: 'plus' },
   { value: 'due', label: 'Due date', icon: 'calendar' },

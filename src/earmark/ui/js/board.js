@@ -67,8 +67,8 @@ function Card({ it }) {
       <${PriorityIcon} priority=${it.priority} size=${14} />
       <span class="mono card-key">${it.key}</span>
       <span class="card-flags">
-        ${it.blocked ? html`<span class="flag flag-blocked is-icon" title="Blocked by an open issue"><${Icon} name="ban" size=${12} /></span>` : null}
-        ${it.stale ? html`<span class="flag flag-stale is-icon" title="Lease expired: stale claim"><${Icon} name="hourglass" size=${12} /></span>` : null}
+        ${it.blocked ? html`<span class="flag flag-blocked" title="Blocked by an open issue"><${Icon} name="ban" size=${12} /><span>Blocked</span></span>` : null}
+        ${it.stale ? html`<span class="flag flag-stale" title="Lease expired: the claim is stale and others may take it over"><${Icon} name="hourglass" size=${12} /><span>Stale</span></span>` : null}
       </span>
       <${Avatar} handle=${it.assignee} size=${20} />
     </div>

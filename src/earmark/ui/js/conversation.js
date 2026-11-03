@@ -3,9 +3,9 @@
 import { html, useState, useRef, useEffect } from './lib.js';
 import { state, set, mutate, loadDetail, toast } from './state.js';
 import { enc } from './api.js';
-import { Icon, Avatar, KindBadge, Age, agentOf, Kbd, RoleBadge } from './components.js';
+import { Icon, Avatar, KindBadge, Age, agentOf, Kbd, RoleBadge, PriorityIcon, StatusIcon } from './components.js';
 import { renderMarkdown, excerpt } from './markdown.js';
-import { KIND, COMPOSER_KINDS, eventText, EVENT_ICON } from './meta.js';
+import { KIND, COMPOSER_KINDS, eventText, EVENT_ICON, PRIORITY, STATUS } from './meta.js';
 import { cx, copyText, absTime, store, age } from './util.js';
 import { mdClick } from './components.js';
 
@@ -100,7 +100,10 @@ function Comment({ c, issue, parent, onReply, fresh }) {
 
 function EventRow({ e }) {
   return html`<li class="event">
-    <span class="event-ico"><${Icon} name=${EVENT_ICON[e.action] || 'activity'} size=${12} /></span>
+    <span class="event-ico">${e.action === 'priority' && PRIORITY[e.new]
+      ? html`<${PriorityIcon} priority=${e.new} size=${12} />`
+      : e.action === 'status' && STATUS[e.new] ? html`<${StatusIcon} status=${e.new} size=${12} />`
+        : html`<${Icon} name=${EVENT_ICON[e.action] || 'activity'} size=${12} />`}</span>
     <span class="event-txt"><strong>${e.actor}</strong> ${eventText(e)}</span>
     <time class="event-time" datetime=${e.at} title=${absTime(e.at)}>${age(e.at, state.now)}</time>
   </li>`;

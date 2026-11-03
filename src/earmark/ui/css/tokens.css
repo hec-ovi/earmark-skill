@@ -34,6 +34,9 @@
   --st-done: #1d9a4f;
   --st-canceled: #a3a3ab;
 
+  --pri-high: #e0620d;
+  --pri-medium: #c28a06;
+  --pri-low: #6b7a90;
   --red: #d93a3a;
   --red-soft: rgba(217, 58, 58, 0.09);
   --amber: #b86a04;
@@ -97,6 +100,9 @@
     --st-blocked: #f2706d;
     --st-done: #45c27a;
     --st-canceled: #6f6f79;
+    --pri-high: #fb8c4a;
+    --pri-medium: #e8b339;
+    --pri-low: #8d9bb0;
     --red: #f2706d;
     --red-soft: rgba(242, 112, 109, 0.12);
     --amber: #f0a02e;
@@ -149,6 +155,9 @@
   --st-blocked: #f2706d;
   --st-done: #45c27a;
   --st-canceled: #6f6f79;
+  --pri-high: #fb8c4a;
+  --pri-medium: #e8b339;
+  --pri-low: #8d9bb0;
   --red: #f2706d;
   --red-soft: rgba(242, 112, 109, 0.12);
   --amber: #f0a02e;

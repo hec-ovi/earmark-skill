@@ -25,12 +25,13 @@ export const FLOW = {
   canceled: ['todo'],
 };
 
+// Issue-tracker convention: the shape alone reads as priority (never signal bars).
 export const PRIORITY = {
   urgent: { label: 'Urgent', icon: 'pri-urgent' },
-  high: { label: 'High', icon: 'pri-high' },
-  medium: { label: 'Medium', icon: 'pri-medium' },
-  low: { label: 'Low', icon: 'pri-low' },
-  none: { label: 'No priority', icon: 'pri-none' },
+  high: { label: 'High', icon: 'chevrons-up' },
+  medium: { label: 'Medium', icon: 'equal' },
+  low: { label: 'Low', icon: 'chevron-down' },
+  none: { label: 'No priority', icon: 'minus' },
 };
 export const PRIORITY_KEYS = ['urgent', 'high', 'medium', 'low', 'none'];
 
@@ -132,8 +133,8 @@ export function eventText(e) {
 }
 
 export const EVENT_ICON = {
-  created: 'plus', status: 'refresh-cw', title: 'pencil', body: 'pencil', priority: 'pri-high',
-  type: 'tag', topic: 'folder', assignee: 'user-plus', reviewer: 'scan-eye', due: 'calendar',
+  created: 'plus', status: 'refresh-cw', title: 'pencil', body: 'pencil', priority: 'flag',
+  type: 'shapes', topic: 'folder', assignee: 'user-plus', reviewer: 'scan-eye', due: 'calendar',
   labels: 'tag', parent: 'list-tree', link: 'link', unlink: 'link-2-off', rank: 'arrow-up-down',
   claim: 'hammer', release: 'corner-up-left', takeover: 'refresh-cw', review: 'send',
   approve: 'check', reject: 'triangle-alert', reopen: 'refresh-cw',

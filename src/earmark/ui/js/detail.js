@@ -162,7 +162,7 @@ function Properties({ issue }) {
   const topic = issue.topic ? state.topicIndex.get(issue.topic) : null;
   const assignee = agentOf(issue.assignee);
   return html`<div class="props">
-    <${Prop} label="Status" icon="circle-dot">
+    <${Prop} label="Status" icon="workflow">
       <${PropButton} label="Change status" onClick=${(e) => statusMenu(e.currentTarget, issue, (v) => moveStatus(issue.key, v))}>
         <${StatusIcon} status=${issue.status} /><span>${STATUS[issue.status].label}</span></${PropButton}>
     </${Prop}>
@@ -181,7 +181,7 @@ function Properties({ issue }) {
         ${issue.reviewer ? html`<${Avatar} handle=${issue.reviewer} size=${20} /><span>${issue.reviewer}</span>` : html`<span>${issue.status === 'in_review' ? 'Waiting for a reviewer' : 'None'}</span>`}
       </span>
     </${Prop}>
-    <${Prop} label="Type" icon="tag">
+    <${Prop} label="Type" icon="shapes">
       <${PropButton} label="Change type" onClick=${(e) => openPopover(e.currentTarget, html`<${Menu}
           items=${TYPE_KEYS.map((t) => ({ value: t, label: TYPE[t].label, icon: TYPE[t].icon, checked: issue.type === t }))}
           onSelect=${(v) => v !== issue.type && patchIssue(issue, { type: v })} />`, { width: 170 })}>

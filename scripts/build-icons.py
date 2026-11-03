@@ -23,6 +23,8 @@ import xml.etree.ElementTree as ET
 LUCIDE = [
     # status
     "circle-dashed", "circle", "eye", "ban", "circle-check", "circle-x",
+    # priority (urgent is the custom filled square below)
+    "chevrons-up", "equal", "chevron-down", "minus",
     # comment kinds
     "message-square", "activity", "circle-help", "send", "check", "triangle-alert",
     # roles and agents
@@ -33,14 +35,14 @@ LUCIDE = [
     "layers", "user", "inbox", "users", "list", "square-kanban", "layout-list", "hash",
     "folder", "folder-open", "folder-plus", "folder-tree", "history",
     # actions and controls
-    "search", "plus", "x", "chevron-right", "chevron-down", "chevron-left", "chevron-up",
+    "search", "plus", "x", "chevron-right", "chevron-left", "chevron-up",
     "ellipsis", "pencil", "trash-2", "archive", "archive-restore", "copy", "link", "link-2-off",
     "calendar", "tag", "list-tree", "corner-down-right", "corner-up-left", "clock",
     "hourglass", "arrow-up-down", "arrow-down-wide-narrow", "list-filter", "keyboard",
     "panel-left", "maximize-2", "minimize-2", "arrow-left", "arrow-right", "reply",
     "at-sign", "refresh-cw", "loader-circle", "info", "circle-alert", "move", "sun", "moon",
     "monitor", "grip-vertical", "external-link", "git-fork", "flag", "user-plus", "user-x",
-    "eye-off", "text-quote", "check-check", "lock", "circle-dot",
+    "eye-off", "text-quote", "check-check", "lock", "circle-dot", "workflow",
     # topic and profile icon palette
     "gamepad-2", "palette", "music", "audio-lines", "volume-2", "image", "brush", "code",
     "server", "database", "globe", "smartphone", "box", "cpu", "file-text", "type",
@@ -56,19 +58,9 @@ CUSTOM = [
     # in_progress: outline circle with the right half filled
     ("st-progress", '<circle cx="12" cy="12" r="10"/>'
                     '<path d="M12 6a6 6 0 0 1 0 12z" fill="currentColor" stroke="none"/>'),
-    # priority: urgent is a filled rounded square with an exclamation mark in the stroke color
+    # priority urgent: a filled rounded square with an exclamation mark in the stroke color
     ("pri-urgent", '<rect x="2.5" y="2.5" width="19" height="19" rx="5" fill="currentColor" stroke="none"/>'
                    '<path d="M12 7v6"/><path d="M12 16.6v.4"/>'),
-    ("pri-high", '<rect x="3" y="13" width="4.5" height="8" rx="1.2" fill="currentColor" stroke="none"/>'
-                 '<rect x="9.75" y="8" width="4.5" height="13" rx="1.2" fill="currentColor" stroke="none"/>'
-                 '<rect x="16.5" y="3" width="4.5" height="18" rx="1.2" fill="currentColor" stroke="none"/>'),
-    ("pri-medium", '<rect x="3" y="13" width="4.5" height="8" rx="1.2" fill="currentColor" stroke="none"/>'
-                   '<rect x="9.75" y="8" width="4.5" height="13" rx="1.2" fill="currentColor" stroke="none"/>'
-                   '<rect x="16.5" y="3" width="4.5" height="18" rx="1.2" fill="currentColor" stroke="none" opacity=".28"/>'),
-    ("pri-low", '<rect x="3" y="13" width="4.5" height="8" rx="1.2" fill="currentColor" stroke="none"/>'
-                '<rect x="9.75" y="8" width="4.5" height="13" rx="1.2" fill="currentColor" stroke="none" opacity=".28"/>'
-                '<rect x="16.5" y="3" width="4.5" height="18" rx="1.2" fill="currentColor" stroke="none" opacity=".28"/>'),
-    ("pri-none", '<path d="M4 12h2.5M10.75 12h2.5M17.5 12H20"/>'),
     # brand: a page with its corner folded down (an earmark)
     ("brand", '<path d="M6 2.5h8.5L20 8v11.5A2 2 0 0 1 18 21.5H6a2 2 0 0 1-2-2v-15a2 2 0 0 1 2-2z"/>'
               '<path d="M14.5 2.5V8H20" fill="currentColor"/>'),

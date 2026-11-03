@@ -62,6 +62,10 @@ code, kbd, pre, .mono { font-family: var(--mono); }
 .st-pill .i { color: var(--st); }
 
 .pri { display: inline-flex; color: var(--text-3); line-height: 0; }
+.pri .i { stroke-width: 2.4; }
+.pri-high { color: var(--pri-high); }
+.pri-medium { color: var(--pri-medium); }
+.pri-low { color: var(--pri-low); }
 .pri-none { color: var(--text-4); }
 .pri-urgent { color: var(--red); }
 .pri-urgent .i { stroke: #ffffff; stroke-width: 2.6; }
