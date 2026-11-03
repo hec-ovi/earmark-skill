@@ -90,6 +90,11 @@ It installs the skill only; install the CLI with `uv tool install` as well.
 Grok clones the repo and installs the root `SKILL.md`. Grok also reads `~/.agents/skills` and
 `.agents/skills`, so `npx skills add` and `install.sh` cover it too.
 
+Grok loads project-level skills (`.agents/skills`, `.grok/skills`) only in trusted folders. Trust
+the project once with `grok --trust` from its root, or install the skill at user level
+(`~/.agents/skills/earmark`), which does not depend on folder trust. `grok inspect --json` lists
+the skills Grok sees and whether the folder is trusted.
+
 ## Claude Code
 
 ```text
