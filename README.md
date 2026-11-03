@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-0.1.0-blue" alt="Version 0.1.0" />
+  <img src="https://img.shields.io/badge/Version-0.1.1-blue" alt="Version 0.1.1" />
   <img src="https://img.shields.io/badge/License-MIT-green" alt="MIT license" />
   <img src="https://img.shields.io/badge/Python-3.10%2B_stdlib_only-3776AB?logo=python&logoColor=white" alt="Python 3.10+, standard library only" />
   <img src="https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white" alt="SQLite WAL" />
@@ -83,7 +83,7 @@ Measured on the demo board (`scripts/seed-demo.py`: 50 issues, 81 comments, 11 a
 |---|---|---|
 | `earmark join ui-lead` (identity, role prompt, scope, loop) | once per session | ~410 |
 | `earmark next` (claim + issue + unseen comments) | the whole start of an issue | ~220 |
-| `earmark check` with nothing new | `check: nothing new since 13:00:24Z · holding GAME-4 (lease 2h) · todo for you: 1` | ~20 |
+| `earmark check` with nothing new | `check: nothing new since 14:45:27Z · holding GAME-4 (lease 2h) · ready for you: 1` | ~20 |
 | `earmark check` with four changed issues | one line per issue | ~110 |
 | `earmark show GAME-8 -f status` | `status: in_review` | ~5 |
 | `earmark show GAME-8 GAME-9 GAME-11 -f status,assignee` | one line per issue | ~32 |
@@ -92,8 +92,8 @@ Measured on the demo board (`scripts/seed-demo.py`: 50 issues, 81 comments, 11 a
 | `SKILL.md`, loaded once by the agent CLI | 92 lines | ~1,700 |
 
 ```
-check: since 10-21 15:41:28Z · holding GAME-26 (lease expired, comment to renew) · todo for you: 4
-GAME-3   1 new comment, question for you
+check: since 10-21 17:18:28Z · holding GAME-26 (lease expired, comment to renew) · ready for you: 4
+GAME-3   1 new comment, mentions you
 GAME-26  1 new comment, question for you
 GAME-25  approved (codex-review) · 1 new comment
 GAME-29  approved (codex-review) · 1 new comment
