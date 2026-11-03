@@ -742,7 +742,8 @@ def _soak(args, workdir: str) -> dict:
                      "wchar": io_delta(ui_io0, ui_io1, "wchar"),
                      "change_events": ui.events["changes"], "pings": ui.events["pings"]}
         ui.close()
-        ui_during["lifetime_write_bytes"] = ui.lifetime_written
+        ui_during.update(lifetime_write_bytes=ui.lifetime_written, exit_code=ui.proc.returncode,
+                         exit_seconds=ui.exit_seconds, killed=ui.killed)
     load_end = loadavg()
     files_after = file_state(db)
     sectors_after = sectors_written(stat_path)
@@ -855,6 +856,7 @@ class UiSession:
         self.events = {"pings": 0, "changes": 0, "last_change": None, "bytes": 0}
         self.sock = None
         self.lifetime_written = None
+        self.exit_seconds, self.killed = None, False
         self.stop_event = threading.Event()
         try:
             self.banner = self.proc.stdout.readline().decode("utf-8", "replace").strip()
@@ -906,16 +908,18 @@ class UiSession:
         if self.proc.returncode is not None:
             return
         self.proc.send_signal(signal.SIGINT)
-        deadline = time.monotonic() + 10
+        started = time.monotonic()
         while True:
             pid, status, ru = os.wait4(self.proc.pid, os.WNOHANG)
             if pid:
                 break
-            if time.monotonic() > deadline:
+            if time.monotonic() > started + 30:
+                self.killed = True
                 self.proc.kill()
                 pid, status, ru = os.wait4(self.proc.pid, 0)
                 break
-            time.sleep(0.05)
+            time.sleep(0.02)
+        self.exit_seconds = time.monotonic() - started
         self.proc.returncode = os.waitstatus_to_exitcode(status)
         self.proc.stdout.close()
         self.lifetime_written = ru.ru_oublock * 512 if LINUX else None
@@ -1213,7 +1217,9 @@ def print_soak(res: dict, out) -> None:
         u = d["ui_during_run"]
         print(f"earmark ui during the run: wrote {size(u['write_bytes'])} while agents ran, "
               f"{size(u['lifetime_write_bytes'])} over its life (start, final checkpoint at "
-              f"close) · {u['change_events']:,} change events on the open stream", file=out)
+              f"close) · {u['change_events']:,} change events on the open stream · Ctrl+C exit "
+              f"{u['exit_code']} in {u['exit_seconds']:.2f} s{' (killed)' if u['killed'] else ''}",
+              file=out)
     print(f"peak RSS of one CLI call: {size(res['rss_max_kib'] * 1024)} (p50 "
           f"{size(res['rss_p50_kib'] * 1024)})", file=out)
     if "idle" in res:
