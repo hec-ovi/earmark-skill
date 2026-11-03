@@ -113,18 +113,24 @@ class TopicsMixin:
         self._event(tx, None, "topic_add", None, path)
         return cur.lastrowid
 
-    def edit_topic(self, ref: str | int, *, name: str | None = None, icon: str | None = None,
-                   description: str | None = None, position: int | None = None,
-                   archived: bool | None = None) -> dict:
-        wanted = {"name": None if name is None else (name.strip() or None),
+    def edit_topic(self, ref: str | int, *, path: str | None = None, name: str | None = None,
+                   icon: str | None = None, description: str | None = None,
+                   position: int | None = None, archived: bool | None = None) -> dict:
+        """Edit fields and, when `path` is given, move the topic too: everything is validated
+        first and applied in one transaction, so a bad field never leaves a half-done move."""
+        if name is not None and not name.strip():
+            raise InvalidRequest("topic name cannot be empty")
+        new_path = model.parse_topic_path(path) if path is not None else None
+        wanted = {"name": None if name is None else name.strip(),
                   "icon": None if icon is None else (icon.strip() or ""),
                   "description": description,
                   "position": None if position is None else int(position),
                   "archived": None if archived is None else int(model.parse_bool(archived))}
-        if name is not None and not name.strip():
-            raise InvalidRequest("topic name cannot be empty")
         with self._tx() as tx:
             row = self._topic_row(tx.conn, ref)
+            if new_path is not None:
+                self._move_topic(tx, row, new_path)
+                row = self._topic_row(tx.conn, row["id"])
             for column, value in wanted.items():
                 if value is None:
                     continue
@@ -140,33 +146,37 @@ class TopicsMixin:
         new_path = model.parse_topic_path(new_path)
         with self._tx() as tx:
             row = self._topic_row(tx.conn, ref)
-            old = row["path"]
-            if new_path == old:
-                return self._topic_node(tx.conn, row["id"])
-            if new_path.startswith(old + "/"):
-                raise InvalidRequest(f"cannot move {old!r} inside itself")
-            if tx.conn.execute("SELECT 1 FROM topics WHERE path = ?", (new_path,)).fetchone():
-                raise Conflict(f"topic {new_path!r} already exists")
-            depth_below = tx.conn.execute(
-                "SELECT coalesce(max(length(path) - length(replace(path, '/', ''))), 0) FROM topics "
-                "WHERE path LIKE ?", (old + "/%",)).fetchone()[0] - old.count("/")
-            if new_path.count("/") + 1 + max(depth_below, 0) > model.MAX_TOPIC_DEPTH:
-                raise InvalidRequest(f"moving {old!r} to {new_path!r} would exceed "
-                                     f"{model.MAX_TOPIC_DEPTH} levels")
-            parent_id = self._ensure_ancestors(tx, new_path)
-            if parent_id != row["parent_id"]:
-                position = tx.conn.execute(
-                    "SELECT coalesce(max(position) + 1, 0) FROM topics WHERE parent_id IS ?",
-                    (parent_id,)).fetchone()[0]
-            else:
-                position = row["position"]
-            tx.conn.execute("UPDATE topics SET path = ? || substr(path, ?) WHERE path LIKE ?",
-                            (new_path, len(old) + 1, old + "/%"))
-            tx.conn.execute("UPDATE topics SET path = ?, slug = ?, parent_id = ?, position = ? "
-                            "WHERE id = ?", (new_path, new_path.rsplit("/", 1)[-1], parent_id,
-                                             position, row["id"]))
-            self._event(tx, None, "topic_move", old, new_path)
+            self._move_topic(tx, row, new_path)
             return self._topic_node(tx.conn, row["id"])
+
+    def _move_topic(self, tx: Tx, row, new_path: str) -> None:
+        """Rewrite the paths of the node and its subtree (checks first, then the writes)."""
+        old = row["path"]
+        if new_path == old:
+            return
+        if new_path.startswith(old + "/"):
+            raise InvalidRequest(f"cannot move {old!r} inside itself")
+        if tx.conn.execute("SELECT 1 FROM topics WHERE path = ?", (new_path,)).fetchone():
+            raise Conflict(f"topic {new_path!r} already exists")
+        depth_below = tx.conn.execute(
+            "SELECT coalesce(max(length(path) - length(replace(path, '/', ''))), 0) FROM topics "
+            "WHERE path LIKE ?", (old + "/%",)).fetchone()[0] - old.count("/")
+        if new_path.count("/") + 1 + max(depth_below, 0) > model.MAX_TOPIC_DEPTH:
+            raise InvalidRequest(f"moving {old!r} to {new_path!r} would exceed "
+                                 f"{model.MAX_TOPIC_DEPTH} levels")
+        parent_id = self._ensure_ancestors(tx, new_path)
+        if parent_id != row["parent_id"]:
+            position = tx.conn.execute(
+                "SELECT coalesce(max(position) + 1, 0) FROM topics WHERE parent_id IS ?",
+                (parent_id,)).fetchone()[0]
+        else:
+            position = row["position"]
+        tx.conn.execute("UPDATE topics SET path = ? || substr(path, ?) WHERE path LIKE ?",
+                        (new_path, len(old) + 1, old + "/%"))
+        tx.conn.execute("UPDATE topics SET path = ?, slug = ?, parent_id = ?, position = ? "
+                        "WHERE id = ?", (new_path, new_path.rsplit("/", 1)[-1], parent_id,
+                                         position, row["id"]))
+        self._event(tx, None, "topic_move", old, new_path)
 
     def remove_topic(self, ref: str | int, *, archive: bool = False) -> dict:
         with self._tx() as tx:

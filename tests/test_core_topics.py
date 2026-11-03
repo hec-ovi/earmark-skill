@@ -95,6 +95,28 @@ class Edit(BoardCase):
         self.assertGreaterEqual(actions.count("topic_edit"), 5)
 
 
+    def test_move_and_edit_in_one_transaction(self):  # r11: PATCH {path, name, ...}
+        b = self.board
+        b.add_topic("ui/old/leaf")
+        b.add_topic("taken")
+        events = len(b.activity(limit=500)["items"])
+        for bad in ({"path": "ui/new", "name": "   "}, {"path": "taken", "name": "New"},
+                    {"path": "ui/old/leaf/inside", "icon": "x"}, {"path": "Bad Path!", "name": "x"},
+                    {"path": "ui/new", "archived": "maybe"}):
+            with self.subTest(bad), self.assertRaises((InvalidRequest, Conflict)):
+                b.edit_topic("ui/old", **bad)
+        self.assertEqual(paths(b.topics()), ["ui", "ui/old", "ui/old/leaf", "taken"])
+        self.assertEqual(len(b.activity(limit=500)["items"]), events)  # nothing half-applied
+        edited = b.edit_topic("ui/old", path="game/menus", name="Menus", icon="layout", position=3)
+        self.assertEqual((edited["path"], edited["name"], edited["icon"], edited["position"]),
+                         ("game/menus", "Menus", "layout", 3))
+        self.assertEqual([c["path"] for c in edited["children"]], ["game/menus/leaf"])
+        log = [e["action"] for e in b.activity(limit=10)["items"]]
+        self.assertEqual(log[:4], ["topic_edit"] * 3 + ["topic_move"])
+        same = b.edit_topic("game/menus", path="game/menus", description="All menus")
+        self.assertEqual((same["path"], same["description"]), ("game/menus", "All menus"))
+
+
 class Move(BoardCase):
     def test_rewrites_the_subtree_and_issues_follow(self):
         b = self.board
