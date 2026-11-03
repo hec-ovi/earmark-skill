@@ -978,6 +978,18 @@ def _unblocked(c: dict) -> str:
     return "unblocked"
 
 
+CHECK_LINKS_SHOWN = 2
+
+
+def check_links(links: list[dict]) -> str:
+    """`+blocks GAME-5, -relates GAME-2`: each link added (+) or removed (-), as seen from the
+    issue; past the first two, `…`."""
+    words = [f"{'-' if ln.get('change') == 'removed' else '+'}"
+             f"{str(ln.get('link') or 'link').replace('_', ' ')} {dash(ln.get('key'))}"
+             for ln in links[:CHECK_LINKS_SHOWN]]
+    return ", ".join(words + (["…"] if len(links) > CHECK_LINKS_SHOWN else []))
+
+
 def check_change(c: dict) -> str:
     """One change of a checked issue, as few words as say what happened."""
     kind = c.get("kind")
@@ -1002,6 +1014,8 @@ def check_change(c: dict) -> str:
         return f"taken over ({by})" if by else "taken over"
     if kind in ("field", "edit"):
         field = c.get("field") or "field"
+        if field == "links" and c.get("links"):
+            return check_links(c["links"])
         if field == "assignee" and "new" in c:
             return f"assigned to {c['new']}" if c["new"] else "unassigned"
         return f"{field} {_arrow(c)}" if field in ("priority", "status") else f"{field} changed"
