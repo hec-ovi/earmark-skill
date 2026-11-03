@@ -35,7 +35,8 @@ def _excerpt(text: str | None) -> str | None:
 def _title(value: str) -> str:
     title = " ".join(str(value or "").split())
     if not 1 <= len(title) <= 200:
-        raise InvalidRequest("title must be 1 to 200 characters")
+        raise InvalidRequest("title must be 1 to 200 characters",
+                             hint='keep the title short; put details in -b "…"' if title else None)
     return title
 
 
