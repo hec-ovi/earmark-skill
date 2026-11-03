@@ -144,15 +144,46 @@ def _term_width() -> int:
 # ---- envelope ---------------------------------------------------------------------------
 
 def envelope(command: str, *, data: Any = None, error: dict | None = None,
-             board: str | None = None, actor: str | None = None) -> dict:
+             board: str | None = None, actor: str | None = None, changes: int = 0) -> dict:
     from earmark import CONTRACT_VERSION
+    meta: dict[str, Any] = {"command": command, "board": board, "actor": actor}
+    if changes:
+        meta["changes"] = changes
     return {
         "contract_version": CONTRACT_VERSION,
         "ok": error is None,
         "data": data if error is None else None,
         "error": error,
-        "meta": {"command": command, "board": board, "actor": actor},
+        "meta": meta,
     }
+
+
+# Writes by an actor, and `next`, end with the dirty hint when the actor's check feed has
+# something: `· N changes for you: earmark check` (text) or meta.changes (JSON).
+HINT_COMMANDS = frozenset((
+    "new", "edit", "comment", "need", "move", "claim", "release", "review", "approve", "reject",
+    "done", "reopen", "cancel", "assign", "link", "unlink", "rank", "delete", "attach", "detach",
+    "topic add", "topic edit", "topic mv", "topic rm", "profile add", "profile edit", "profile rm",
+    "next"))
+
+
+def pending_changes(ctx: "Context | None", command: str) -> int:
+    """What the board's check feed holds for the actor; 0 when there is no actor, the board has
+    no feed yet, or asking fails (a hint never breaks the command it follows)."""
+    if command not in HINT_COMMANDS or ctx is None or ctx._board is None or not ctx.actor:
+        return 0
+    ask = getattr(ctx._board, "pending_changes", None)
+    if not callable(ask):
+        return 0
+    try:
+        n = ask()
+    except Exception:
+        return 0
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 0
+
+
+def changes_hint(n: int) -> str:
+    return f"· {n} {'change' if n == 1 else 'changes'} for you: earmark check"
 
 
 def dump_json(obj: Any, pretty: bool) -> str:
@@ -222,18 +253,21 @@ def run(argv: list[str] | None = None) -> int:
         ctx = Context(ns, command)
         result = handler_for(command)(ctx, ns)
         error = result.error
+        changes = pending_changes(ctx, command)
         if ctx.json:
             if error is not None:
                 _write(sys.stdout, dump_json(envelope(command, error=error.to_dict(), board=ctx.prefix,
-                                                      actor=ctx.actor), ctx.tty))
+                                                      actor=ctx.actor, changes=changes), ctx.tty))
                 return error.exit_code
             _write(sys.stdout, dump_json(envelope(command, data=result.data, board=ctx.prefix,
-                                                  actor=ctx.actor), ctx.tty))
+                                                  actor=ctx.actor, changes=changes), ctx.tty))
             return result.code
         text = result.text() if callable(result.text) else result.text
         if text:
             _write(sys.stdout if result.stream == "stdout" else sys.stderr,
                    escape_controls(text, color=ctx.style.color))
+        if changes:
+            _write(sys.stdout, changes_hint(changes))
         if error is not None:
             if error.code != "empty":  # an empty answer is part of the text already
                 _write_error(error)
@@ -270,13 +304,16 @@ def _fail(e: EarmarkError, command: str, ctx: Context | None, json_mode: bool) -
         json_mode = ctx.json
     board = ctx.prefix if ctx else None
     actor = ctx.actor if ctx else None
+    changes = pending_changes(ctx, command) if e.code == "empty" else 0  # `next` with nothing to claim
     if json_mode:
-        _write(sys.stdout, dump_json(envelope(command, error=e.to_dict(), board=board, actor=actor),
-                                     bool(ctx and ctx.tty)))
+        _write(sys.stdout, dump_json(envelope(command, error=e.to_dict(), board=board, actor=actor,
+                                              changes=changes), bool(ctx and ctx.tty)))
         return e.exit_code
     if e.code == "empty":
         from earmark.cli.common import empty_text
         _write(sys.stdout, escape_controls(empty_text(command, e, ctx)))
+        if changes:
+            _write(sys.stdout, changes_hint(changes))
         return e.exit_code
     _write_error(e)
     return e.exit_code
