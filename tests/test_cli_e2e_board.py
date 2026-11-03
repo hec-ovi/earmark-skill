@@ -76,7 +76,8 @@ class BoardCommandTests(LauncherCase):
         self.assertTrue(info[1].startswith("prefix: GAME · owner: hector · schema: 1"))
         self.assertIn("issues: 1 total, 1 open · todo 1", info)
         self.assertEqual(self.run_ok("config").stdout,
-                         "require_review: true\nlease_minutes: 120\nmax_attachment_mb: 50\nprefix: GAME\n")
+                         "require_review: true\nlease_minutes: 120\nmax_attachment_mb: 50\n"
+                         "max_review_rounds: 3\nprefix: GAME\n")
         self.assertEqual(self.run_ok("config", "lease_minutes", "90", "--as", "hector").stdout,
                          "lease_minutes: 90\n")
         self.assertEqual(self.run_ok("config", "lease_minutes").stdout, "lease_minutes: 90\n")
