@@ -133,12 +133,12 @@ Covers issues you are assignee, reviewer or reporter of, have commented on, or a
 |---|---|
 | `earmark next [--review] [--topic PATH] [--dry-run]` | pick and claim the best issue in your scope; exit 4 when none |
 | `earmark claim KEY` | claim one issue (or renew your lease on it) |
-| `earmark release KEY [-m NOTE]` | give it back: unassigned todo |
+| `earmark release KEY [-m NOTE] [--next]` | give it back: unassigned todo |
 | `earmark need KEY TITLE -t PATH [--assign H] [-b BODY] [-p PRIO] [--type T] [-l LABEL]… [--attach FILE]…` | work only another specialist can do (an image, audio, copy): files it in PATH as a blocker of KEY and parks KEY as blocked, still yours; KEY returns to your `next` when it is done |
-| `earmark review KEY -m NOTE` | hand off to review; NOTE posted as `handoff` (what changed, how to verify) |
-| `earmark approve KEY [-m NOTE]` | reviewer: in_review → done, `approval` comment |
-| `earmark reject KEY -m NOTE` | reviewer: in_review → todo for the same assignee, `changes` comment |
-| `earmark done KEY [-m NOTE]` | close directly (owner, pm, or boards without required review) |
+| `earmark review KEY -m NOTE [--next]` | hand off to review; NOTE posted as `handoff` (what changed, how to verify) |
+| `earmark approve KEY [-m NOTE] [--next]` | reviewer: in_review → done, `approval` comment |
+| `earmark reject KEY -m NOTE [--next]` | reviewer: in_review → todo for the same assignee, `changes` comment |
+| `earmark done KEY [-m NOTE] [--next]` | close directly (owner, pm, or boards without required review) |
 | `earmark move KEY STATUS [-m NOTE]` | any allowed transition (see [workflow.md](workflow.md)) |
 | `earmark reopen KEY -m NOTE` · `earmark cancel KEY -m NOTE` | done/canceled → todo · → canceled |
 
