@@ -226,7 +226,7 @@ control characters from user text.
 ## Develop
 
 ```bash
-python3 -m unittest discover -s tests -t .        # 618 tests: core, CLI, server, skill, UI assets
+python3 -m unittest discover -s tests -t .        # 632 tests: core, CLI, server, skill, UI assets
 python3 scripts/seed-demo.py --dir /tmp/demo      # a realistic game-studio board
 ./earmark ui --db /tmp/demo/.earmark/earmark.db
 python3 scripts/soak.py                            # many agent processes on the real CLI
