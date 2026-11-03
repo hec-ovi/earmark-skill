@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hec-ovi/earmark-skill/contracts/board.schema.json",
+  "title": "Board payloads",
+  "description": "Shapes returned by the board service: the `data` of every `earmark --json` envelope and every HTTP API response (docs/HTTP_API.md). Additive fields are MINOR (consumers ignore unknown fields); removal, rename, type change or meaning change is MAJOR.",
+  "x-contract-version": "1.0.0",
+  "$defs": {
+    "Key": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{0,9}-[1-9][0-9]*$", "description": "Issue key <PREFIX>-<id>." },
+    "Handle": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,31}$" },
+    "TopicPath": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}(/[a-z0-9][a-z0-9-]{0,47}){0,15}$" },
+    "Label": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,31}$" },
+    "Timestamp": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$", "description": "UTC, second precision." },
+    "Date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "Status": { "enum": ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "canceled"] },
+    "Priority": { "enum": ["urgent", "high", "medium", "low", "none"] },
+    "IssueType": { "enum": ["bug", "feature", "task", "chore"] },
+    "CommentKind": { "enum": ["note", "progress", "question", "handoff", "approval", "changes"] },
+    "Role": { "enum": ["worker", "reviewer", "pm"] },
+    "Count": { "type": "integer", "minimum": 0 },
+
+    "IssueSummary": {
+      "type": "object",
+      "description": "One issue in a list. `stale`: the holder's lease has expired. `blocked`: an issue that blocks it is not done or canceled.",
+      "required": ["key", "id", "title", "status", "priority", "type", "topic", "assignee", "reviewer",
+                   "reporter", "labels", "due", "parent", "children", "blocked", "stale", "lease_until",
+                   "rank", "version", "comment_count", "last_comment_id", "created_at", "updated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/Key" },
+        "id": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "status": { "$ref": "#/$defs/Status" },
+        "priority": { "$ref": "#/$defs/Priority" },
+        "type": { "$ref": "#/$defs/IssueType" },
+        "topic": { "oneOf": [{ "$ref": "#/$defs/TopicPath" }, { "type": "null" }] },
+        "assignee": { "oneOf": [{ "$ref": "#/$defs/Handle" }, { "type": "null" }] },
+        "reviewer": { "oneOf": [{ "$ref": "#/$defs/Handle" }, { "type": "null" }] },
+        "reporter": { "$ref": "#/$defs/Handle" },
+        "labels": { "type": "array", "items": { "$ref": "#/$defs/Label" } },
+        "due": { "oneOf": [{ "$ref": "#/$defs/Date" }, { "type": "null" }] },
+        "parent": { "oneOf": [{ "$ref": "#/$defs/Key" }, { "type": "null" }] },
+        "children": { "$ref": "#/$defs/Count", "description": "Number of sub-issues." },
+        "blocked": { "type": "boolean" },
+        "stale": { "type": "boolean" },
+        "lease_until": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "rank": { "type": "number" },
+        "version": { "type": "integer", "minimum": 1 },
+        "comment_count": { "$ref": "#/$defs/Count" },
+        "last_comment_id": { "type": ["integer", "null"] },
+        "created_at": { "$ref": "#/$defs/Timestamp" },
+        "updated_at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+
+    "Issue": {
+      "type": "object",
+      "description": "Issue detail: IssueSummary fields plus body, lifecycle timestamps, children as summaries, links, and new_comments for the actor (null without one). `comments` holds the last N comments when requested (show -c N).",
+      "required": ["key", "id", "title", "status", "priority", "type", "topic", "assignee", "reviewer",
+                   "reporter", "labels", "due", "parent", "children", "blocked", "stale", "lease_until",
+                   "rank", "version", "comment_count", "last_comment_id", "created_at", "updated_at",
+                   "body", "started_at", "review_requested_at", "resolved_at", "links", "new_comments"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/Key" },
+        "id": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "status": { "$ref": "#/$defs/Status" },
+        "priority": { "$ref": "#/$defs/Priority" },
+        "type": { "$ref": "#/$defs/IssueType" },
+        "topic": { "oneOf": [{ "$ref": "#/$defs/TopicPath" }, { "type": "null" }] },
+        "assignee": { "oneOf": [{ "$ref": "#/$defs/Handle" }, { "type": "null" }] },
+        "reviewer": { "oneOf": [{ "$ref": "#/$defs/Handle" }, { "type": "null" }] },
+        "reporter": { "$ref": "#/$defs/Handle" },
+        "labels": { "type": "array", "items": { "$ref": "#/$defs/Label" } },
+        "due": { "oneOf": [{ "$ref": "#/$defs/Date" }, { "type": "null" }] },
+        "parent": { "oneOf": [{ "$ref": "#/$defs/Key" }, { "type": "null" }] },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/IssueSummary" } },
+        "blocked": { "type": "boolean" },
+        "stale": { "type": "boolean" },
+        "lease_until": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "rank": { "type": "number" },
+        "version": { "type": "integer", "minimum": 1 },
+        "comment_count": { "$ref": "#/$defs/Count" },
+        "last_comment_id": { "type": ["integer", "null"] },
+        "created_at": { "$ref": "#/$defs/Timestamp" },
+        "updated_at": { "$ref": "#/$defs/Timestamp" },
+        "body": { "type": "string" },
+        "started_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "review_requested_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "resolved_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "links": { "$ref": "#/$defs/Links" },
+        "new_comments": { "type": ["integer", "null"], "minimum": 0 },
+        "comments": { "type": "array", "items": { "$ref": "#/$defs/Comment" } }
+      }
+    },
+
+    "Links": {
+      "type": "object",
+      "required": ["blocks", "blocked_by", "duplicates", "duplicated_by", "relates"],
+      "additionalProperties": false,
+      "properties": {
+        "blocks": { "type": "array", "items": { "$ref": "#/$defs/Key" } },
+        "blocked_by": { "type": "array", "items": { "$ref": "#/$defs/Key" } },
+        "duplicates": { "type": "array", "items": { "$ref": "#/$defs/Key" } },
+        "duplicated_by": { "type": "array", "items": { "$ref": "#/$defs/Key" } },
+        "relates": { "type": "array", "items": { "$ref": "#/$defs/Key" } }
+      }
+    },
+
+    "Comment": {
+      "type": "object",
+      "description": "Ids are global and monotonic: one id is a complete read cursor.",
+      "required": ["id", "issue", "author", "kind", "body", "reply_to", "mentions", "created_at", "edited_at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "issue": { "$ref": "#/$defs/Key" },
+        "author": { "$ref": "#/$defs/Handle" },
+        "kind": { "$ref": "#/$defs/CommentKind" },
+        "body": { "type": "string", "minLength": 1 },
+        "reply_to": { "type": ["integer", "null"] },
+        "mentions": { "type": "array", "items": { "$ref": "#/$defs/Handle" } },
+        "created_at": { "$ref": "#/$defs/Timestamp" },
+        "edited_at": { "oneOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
+      }
+    },
+
+    "TopicCounts": {
+      "type": "object",
+      "description": "Rolled up over the node's whole subtree. open = not done or canceled.",
+      "required": ["open", "total", "by_status"],
+      "additionalProperties": false,
+      "properties": {
+        "open": { "$ref": "#/$defs/Count" },
+        "total": { "$ref": "#/$defs/Count" },
+        "by_status": {
+          "type": "object",
+          "required": ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "canceled"],
+          "additionalProperties": false,
+          "properties": {
+            "backlog": { "$ref": "#/$defs/Count" }, "todo": { "$ref": "#/$defs/Count" },
+            "in_progress": { "$ref": "#/$defs/Count" }, "in_review": { "$ref": "#/$defs/Count" },
+            "blocked": { "$ref": "#/$defs/Count" }, "done": { "$ref": "#/$defs/Count" },
+            "canceled": { "$ref": "#/$defs/Count" }
+          }
+        }
+      }
+    },
+
+    "Topic": {
+      "type": "object",
+      "description": "Tree node. `children` is empty past the requested depth.",
+      "required": ["id", "path", "slug", "name", "icon", "description", "parent_id", "position",
+                   "archived", "counts", "children"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "path": { "$ref": "#/$defs/TopicPath" },
+        "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,47}$" },
+        "name": { "type": "string", "minLength": 1 },
+        "icon": { "type": ["string", "null"], "description": "Lucide icon name." },
+        "description": { "type": "string" },
+        "parent_id": { "type": ["integer", "null"] },
+        "position": { "type": "integer" },
+        "archived": { "type": "boolean" },
+        "counts": { "$ref": "#/$defs/TopicCounts" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/Topic" } }
+      }
+    },
+
+    "Agent": {
+      "type": "object",
+      "description": "presence: active (online, seen < 15 min), idle (online, older), offline. working: in_progress assigned to it; reviewing: in_review it holds; assigned: its other open issues.",
+      "required": ["handle", "kind", "profile", "role", "cli", "online", "presence", "joined_at",
+                   "last_seen", "working", "reviewing", "assigned"],
+      "additionalProperties": false,
+      "properties": {
+        "handle": { "$ref": "#/$defs/Handle" },
+        "kind": { "enum": ["agent", "human"] },
+        "profile": { "type": ["string", "null"] },
+        "role": { "oneOf": [{ "$ref": "#/$defs/Role" }, { "type": "null" }] },
+        "cli": { "type": ["string", "null"] },
+        "online": { "type": "boolean" },
+        "presence": { "enum": ["active", "idle", "offline"] },
+        "joined_at": { "$ref": "#/$defs/Timestamp" },
+        "last_seen": { "$ref": "#/$defs/Timestamp" },
+        "working": { "type": "array", "items": { "$ref": "#/$defs/IssueSummary" } },
+        "reviewing": { "type": "array", "items": { "$ref": "#/$defs/IssueSummary" } },
+        "assigned": { "type": "array", "items": { "$ref": "#/$defs/IssueSummary" } }
+      }
+    },
+
+    "Profile": {
+      "type": "object",
+      "description": "topics: scope as topic paths (each covers its subtree); empty = whole board. agents: handles using this profile.",
+      "required": ["slug", "name", "role", "icon", "prompt", "topics", "version", "created_at",
+                   "updated_at", "agents"],
+      "additionalProperties": false,
+      "properties": {
+        "slug": { "$ref": "#/$defs/Handle" },
+        "name": { "type": "string", "minLength": 1 },
+        "role": { "$ref": "#/$defs/Role" },
+        "icon": { "type": ["string", "null"] },
+        "prompt": { "type": "string" },
+        "topics": { "type": "array", "items": { "$ref": "#/$defs/TopicPath" } },
+        "version": { "type": "integer", "minimum": 1 },
+        "created_at": { "$ref": "#/$defs/Timestamp" },
+        "updated_at": { "$ref": "#/$defs/Timestamp" },
+        "agents": { "type": "array", "items": { "$ref": "#/$defs/Handle" } }
+      }
+    },
+
+    "Event": {
+      "type": "object",
+      "description": "One row per change. issue null = board-level event. old/new are display text.",
+      "required": ["id", "issue", "actor", "action", "old", "new", "at"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "issue": { "oneOf": [{ "$ref": "#/$defs/Key" }, { "type": "null" }] },
+        "actor": { "$ref": "#/$defs/Handle" },
+        "action": {
+          "enum": ["created", "status", "title", "body", "priority", "type", "topic", "assignee",
+                   "reviewer", "due", "labels", "parent", "link", "unlink", "rank", "claim", "release",
+                   "takeover", "review", "approve", "reject", "reopen", "topic_add", "topic_edit",
+                   "topic_move", "topic_remove", "profile_add", "profile_edit", "profile_remove",
+                   "join", "leave", "delete", "config"]
+        },
+        "old": { "type": ["string", "null"] },
+        "new": { "type": ["string", "null"] },
+        "at": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+
+    "Briefing": {
+      "type": "object",
+      "description": "Returned by join: who you are, your prompt and scope, your open work, unread inbox count and the loop for your role.",
+      "required": ["agent", "profile", "scope", "assigned", "inbox_new", "loop", "board"],
+      "additionalProperties": false,
+      "properties": {
+        "agent": { "$ref": "#/$defs/Agent" },
+        "profile": { "oneOf": [{ "$ref": "#/$defs/Profile" }, { "type": "null" }] },
+        "scope": { "type": "array", "items": { "$ref": "#/$defs/TopicPath" } },
+        "assigned": { "type": "array", "items": { "$ref": "#/$defs/IssueSummary" } },
+        "inbox_new": { "$ref": "#/$defs/Count" },
+        "loop": { "type": "string" },
+        "board": {
+          "type": "object",
+          "required": ["prefix", "require_review", "lease_minutes"],
+          "additionalProperties": false,
+          "properties": {
+            "prefix": { "type": "string", "pattern": "^[A-Z][A-Z0-9]{0,9}$" },
+            "require_review": { "type": "boolean" },
+            "lease_minutes": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+
+    "IssueList": {
+      "type": "object",
+      "required": ["items", "total", "limit", "offset"],
+      "additionalProperties": false,
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "#/$defs/IssueSummary" } },
+        "total": { "$ref": "#/$defs/Count" },
+        "limit": { "$ref": "#/$defs/Count" },
+        "offset": { "$ref": "#/$defs/Count" }
+      }
+    },
+
+    "CommentPage": {
+      "type": "object",
+      "description": "Oldest first. has_more: calling again after last_id returns more.",
+      "required": ["items", "last_id", "has_more"],
+      "additionalProperties": false,
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "#/$defs/Comment" } },
+        "last_id": { "type": ["integer", "null"] },
+        "has_more": { "type": "boolean" }
+      }
+    },
+
+    "InboxPage": {
+      "type": "object",
+      "description": "cursor: the inbox cursor after this call (unchanged with peek).",
+      "required": ["items", "last_id", "has_more", "cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "#/$defs/Comment" } },
+        "last_id": { "type": "integer", "minimum": 0 },
+        "has_more": { "type": "boolean" },
+        "cursor": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "Activity": {
+      "type": "object",
+      "description": "Newest first.",
+      "required": ["items", "last_id"],
+      "additionalProperties": false,
+      "properties": {
+        "items": { "type": "array", "items": { "$ref": "#/$defs/Event" } },
+        "last_id": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "Team": {
+      "type": "object",
+      "required": ["agents"],
+      "additionalProperties": false,
+      "properties": { "agents": { "type": "array", "items": { "$ref": "#/$defs/Agent" } } }
+    },
+
+    "NextEmpty": {
+      "type": "object",
+      "description": "error.details of `next` when nothing is claimable (code empty, exit 4).",
+      "required": ["review_queue", "inbox", "stale", "scope", "mode"],
+      "additionalProperties": false,
+      "properties": {
+        "review_queue": { "$ref": "#/$defs/Count" },
+        "inbox": { "$ref": "#/$defs/Count" },
+        "stale": { "$ref": "#/$defs/Count" },
+        "scope": { "type": "array", "items": { "$ref": "#/$defs/TopicPath" } },
+        "mode": { "enum": ["work", "review"] }
+      }
+    },
+
+    "HolderConflict": {
+      "type": "object",
+      "description": "error.details when someone else holds a live lease (code conflict).",
+      "required": ["holder", "lease_until", "status"],
+      "properties": {
+        "holder": { "$ref": "#/$defs/Handle" },
+        "lease_until": { "$ref": "#/$defs/Timestamp" },
+        "status": { "$ref": "#/$defs/Status" }
+      }
+    },
+
+    "VersionConflict": {
+      "description": "error.details when if_version (HTTP: version) is stale: the current Issue (or Profile) plus current_version and, for issues, events_since (the events of the writes made after that version, oldest first).",
+      "type": "object",
+      "required": ["current_version"],
+      "properties": {
+        "current_version": { "type": "integer", "minimum": 1 },
+        "events_since": { "type": "array", "items": { "$ref": "#/$defs/Event" } }
+      }
+    }
+  }
+}
