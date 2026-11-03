@@ -13,8 +13,7 @@ if TYPE_CHECKING:  # annotations only; typing stays off the startup path
     from typing import Any, Callable, Iterable
 
 SEP = " · "
-TOPIC_WIDTH = 29          # ls TOPIC column cap (commands.md sample)
-TITLE_WIDTH = 80          # ls TITLE cap when stdout is not a terminal
+TOPIC_WIDTH = 29          # ls TOPIC column cap in a terminal; piped output prints paths in full
 CLOSED = ("done", "canceled")
 
 
@@ -261,7 +260,10 @@ def ls_footer(page: dict, noun: str = "open issues") -> str:
 
 def render_ls(page: dict, *, fields: Iterable[str] | None = None, noun: str = "open issues",
               style: Style = PLAIN, day: str | None = None, width: int | None = None) -> str:
-    """`earmark ls` text: header, aligned columns, '-' for empty, flags last, footer."""
+    """`earmark ls` text: header, aligned columns, '-' for empty, flags last, footer.
+
+    `width` is the terminal's (stdout is a TTY): long topics and titles are shortened to fit.
+    Without it (piped, agents) every cell prints in full, so a topic path can be passed on."""
     items = page.get("items") or []
     fields = list(fields or LS_DEFAULT)
     footer = ls_footer(page, noun)
@@ -278,18 +280,16 @@ def render_ls(page: dict, *, fields: Iterable[str] | None = None, noun: str = "o
         row = []
         for f in cols:
             text = dash(LS_COLUMNS[f][1](i))
-            if f == "topic":
-                text = cut(text, TOPIC_WIDTH, "" if not style.color else style.ellipsis)
+            if f == "topic" and width:
+                text = cut(text, TOPIC_WIDTH, style.ellipsis)
             row.append(text)
         rows.append(row)
-    if "title" in cols:
+    if "title" in cols and width:
         ti = cols.index("title")
-        cap = TITLE_WIDTH
-        if width:
-            others = sum(max(len(LS_COLUMNS[c][0]), *(len(r[k]) for r in rows)) + 2
-                         for k, c in enumerate(cols) if k != ti)
-            longest_tail = max((len(t) for t in tail_plain), default=0)
-            cap = max(24, width - others - (longest_tail + 2 if longest_tail else 0) - 1)
+        others = sum(max(len(LS_COLUMNS[c][0]), *(len(r[k]) for r in rows)) + 2
+                     for k, c in enumerate(cols) if k != ti)
+        longest_tail = max((len(t) for t in tail_plain), default=0)
+        cap = max(24, width - others - (longest_tail + 2 if longest_tail else 0) - 1)
         for r in rows:
             r[ti] = cut(r[ti], cap, style.ellipsis)
     painters: dict[str, Callable[[str], str]] = {"status": style.status, "priority": style.priority,

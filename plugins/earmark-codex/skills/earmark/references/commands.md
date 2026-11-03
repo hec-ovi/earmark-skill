@@ -35,11 +35,13 @@ Exit codes: 0 ok · 1 invalid · 2 not found · 3 conflict · 4 empty · 5 busy.
 Text output (header, aligned columns, `-` for empty, flags last):
 
 ```
-KEY      STATUS       PRIO    TYPE  ASSIGNEE   TOPIC                          TITLE
-GAME-42  in_progress  high    bug   claude-ui  ui-ux/character-menu/face-lay  Eye color widget resets on reload  c:3 due:11-07
-GAME-51  todo         medium  task  -          ui-ux/video-calls              Mute button state  blocked
+KEY      STATUS       PRIO    TYPE  ASSIGNEE   TOPIC                                      TITLE
+GAME-42  in_progress  high    bug   claude-ui  ui-ux/character-menu/face-layer/eye-color  Eye color widget resets on reload  c:3 due:11-07
+GAME-51  todo         medium  task  -          ui-ux/video-calls                          Mute button state  blocked
 2 of 2 open issues
 ```
+
+Piped output prints every cell in full; only a terminal shortens long topics and titles with `…`.
 
 Flags: `blocks:N` holds up N open issues (worked at their priority), `c:N` comments, `due:MM-DD` (`overdue` when past), `blocked`, `stale`, `sub:N` children, `a:N` attachments.
 When more exist: `50 of 212 open issues · next: --offset 50`.

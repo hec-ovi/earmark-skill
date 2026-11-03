@@ -53,8 +53,7 @@ class LsTests(unittest.TestCase):
         self.assertTrue(all(ln == ln.rstrip() for ln in lines))
         title_col = lines[0].index("TITLE")
         self.assertEqual(lines[1][title_col:title_col + 3], "xxx")
-        self.assertIn("x" * 77 + "...", lines[1])
-        self.assertNotIn("x" * 78, lines[1])
+        self.assertIn("x" * 150 + "  c:3", lines[1])  # piped output never cuts
         self.assertTrue(lines[2].endswith("Mute button state"))
         self.assertTrue(all(ord(ch) < 128 for ln in lines[:-1] for ch in ln))
 
@@ -82,11 +81,15 @@ class LsTests(unittest.TestCase):
 
     def test_color_keeps_alignment(self):
         page = {"items": [summary(), summary_51()], "total": 2}
-        styled = [R_strip(ln) for ln in R.render_ls(page, day=DAY, style=R.Style(True, "~")).splitlines()]
-        plain = R.render_ls(page, day=DAY).splitlines()
+        styled = [R_strip(ln) for ln in R.render_ls(page, day=DAY, style=R.Style(True, "~"),
+                                                     width=200).splitlines()]
+        plain = R.render_ls(page, day=DAY, width=200).splitlines()
         self.assertEqual([len(ln) for ln in styled], [len(ln) for ln in plain])
         self.assertEqual(styled[0].index("TITLE"), plain[0].index("TITLE"))
         self.assertIn("face-la~  Eye", styled[1])
+        self.assertIn("face-...  Eye", plain[1])  # a terminal without color
+        piped = R.render_ls(page, day=DAY).splitlines()
+        self.assertIn("ui-ux/character-menu/face-layer/eye-color  Eye", piped[1])
 
 
 def R_strip(text: str) -> str:
