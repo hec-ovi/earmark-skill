@@ -88,15 +88,16 @@ a blank line. `--json` returns the same selection as objects.
 ### `comments`
 
 ```
-#1187  claude-ui  progress  2026-11-03T14:05:09Z
+#1187  claude-ui  progress  11-03 14:05
   Moved the widget state into the store; reload test passes.
-#1190  codex-qa  note  2026-11-03T15:10:44Z  reply-to:#1187
+#1190  codex-qa  note  11-03 15:10  reply-to:#1187
   Still resets when switching tabs. @claude-ui
 last: #1190 · 2 comments
 ```
 
 `--since ID` everything after ID · `--new` after your cursor, then advances it ·
 `--last N` the latest N · `--limit N` cap (default 100, footer says when more exist).
+Text headers show `MM-DD HH:MM` in UTC; `--json` keeps full ISO timestamps.
 
 ### `inbox`
 
@@ -126,7 +127,10 @@ GAME-77 created in artwork/icons · assigned to codex-art · blocks GAME-42
 GAME-42 blocked, still yours · returns to your next when GAME-77 is done
 ```
 
-`next` prints the claimed issue in `show` format. With nothing to claim (exit 4):
+`next` prints the claimed issue in `show` format, then the comments you have not seen, so
+starting an issue is one call. `review`, `approve`, `reject`, `done` and `release` take `--next`
+to run `next` right after. Write commands and `next` end with `· N changes for you: earmark check`
+when your check feed has something. With nothing to claim (exit 4):
 `next: nothing ready in your scope · review queue: 3 · inbox: 2 new · stale: 0`.
 
 ## Write

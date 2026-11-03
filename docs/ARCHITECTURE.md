@@ -117,6 +117,10 @@ assignee and lease. Reject keeps the assignee and clears the reviewer.
 ### `next`: pick and claim in one transaction
 
 Inside one `BEGIN IMMEDIATE`, select the first candidate and claim it.
+`next` prints everything needed to start: the issue in `show` format followed by the comments the
+agent has not seen (advancing its `issue:<id>` cursor), so starting an issue is one call.
+`review`, `approve`, `reject`, `done` and `release` accept `--next`: the action, then `next`, in
+one call (two transactions; the first commits even when nothing is left to claim).
 
 - **Work mode** (default for worker and pm roles): status `todo` and (unassigned, or assigned
   to the actor), or status `in_progress` with an expired lease; inside the actor's profile
@@ -210,8 +214,12 @@ Agents never message each other to get work done. A dependency is an issue.
 - `check` is the change feed for one agent. It keeps a cursor (`check`: last event id and last
   comment id) and reports only what others changed since then on the agent's world: issues
   newly assigned to it, events on issues it is assignee or reviewer of, comments and files on
-  them, and comments anywhere that mention it. Nothing changed prints one line. It advances the
-  cursor (one small write) unless `--peek`; `join` starts the cursor at the current heads.
+  them, and comments anywhere that mention it, summarized per issue as kinds of change and counts
+  (never content). Nothing changed prints one line. It advances the cursor (one small write)
+  unless `--peek`; `join` starts the cursor at the current heads.
+- **Dirty hint.** Every write command run by an agent, and `next`, ends with one extra line when
+  the agent's check feed is not empty: `· 3 changes for you: earmark check` (`meta.changes` in
+  JSON). Agents learn that something changed without polling; nothing is printed otherwise.
 - **Presence** shown in `team`: `active` (online, seen < 15 min), `idle` (online, older),
   `offline`.
 
