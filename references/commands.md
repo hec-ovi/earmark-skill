@@ -250,8 +250,10 @@ One line per issue that changed, issues that need you first (new for you, a ques
 rejected, unblocked), then by priority; at most 10 lines, then `+N more`. Status and priority
 show `old→new`; other fields only say `<field> changed`; comments and files are counts. Nothing
 is printed in full: open what matters with `earmark show KEY -f <fields>,comments --new` or
-`earmark attachments KEY`. Only changes made by others count. The first check after `join`
-covers changes since the join. A lease under 15 minutes prints `(lease 12m, comment to renew)`.
+`earmark attachments KEY`. Only changes made by others count, and on each issue only those
+newer than your own last write there (a claim, comment, review, move or edit), so what `next`
+or `next --review` printed when it claimed the issue is not reported again. The first check
+after `join` covers changes since the join. A lease under 15 minutes prints `(lease 12m, comment to renew)`.
 
 ```
 HANDLE      ROLE      PROFILE   CLI          SEEN  STATE   WORKING
