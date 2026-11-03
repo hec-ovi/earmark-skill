@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Iterable
 
 from earmark.errors import InvalidRequest, NotFound
 

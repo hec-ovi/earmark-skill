@@ -10,7 +10,9 @@ import os
 import sqlite3
 import time
 from contextlib import contextmanager
-from typing import Callable, Iterator
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Callable, Iterator
 
 from earmark.errors import Busy, InternalError, InvalidRequest, NoBoard
 

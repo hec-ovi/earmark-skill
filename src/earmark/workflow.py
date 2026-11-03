@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Iterable
 
 from earmark import model, timeutil, views
 from earmark.errors import Conflict, Empty, Forbidden, InvalidRequest

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, timedelta, timezone
-from typing import Callable
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Callable
 
 from earmark.errors import InvalidRequest
 

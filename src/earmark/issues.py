@@ -3,7 +3,9 @@ links, delete). Status moves and claims live in workflow.py."""
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Any, Iterable
 
 from earmark import model, timeutil, views
 from earmark.errors import Conflict, Forbidden, InvalidRequest, NotFound

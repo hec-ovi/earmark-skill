@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import timedelta
-from typing import Iterable, Sequence
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Iterable, Sequence
 
 from earmark import model, timeutil
 from earmark.db import chunks

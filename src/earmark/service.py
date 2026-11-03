@@ -5,7 +5,9 @@ from __future__ import annotations
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Iterator
+TYPE_CHECKING = False
+if TYPE_CHECKING:  # annotations only; typing stays off the startup path
+    from typing import Iterator
 
 from earmark import db, model, timeutil, views
 from earmark.errors import Forbidden, IdentityRequired, InvalidRequest, NotFound, NotJoined
