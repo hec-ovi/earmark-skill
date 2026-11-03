@@ -1,6 +1,6 @@
 // Board layout: one column per status; drag a card to another column to move it.
 
-import { html, useState } from './lib.js';
+import { html, useState, useRef, useLayoutEffect } from './lib.js';
 import { state, set, issueHref, navigate, moveStatus, loadIssues } from './state.js';
 import { Icon, StatusIcon, PriorityIcon, Avatar, TopicChip, DueChip, Empty, Spinner, LabelChip } from './components.js';
 import { STATUS, BOARD_ORDER } from './meta.js';
@@ -73,14 +73,35 @@ function Card({ it }) {
       <${Avatar} handle=${it.assignee} size=${20} />
     </div>
     <div class="card-title">${it.title}</div>
-    <div class="card-foot">
-      <${TopicChip} path=${it.topic} link=${false} />
-      ${it.labels.slice(0, 1).map((l) => html`<${LabelChip} key=${l} label=${l} />`)}
-      <span class="card-spacer"></span>
+    <${CardFoot} it=${it} />
+  </a>`;
+}
+
+/**
+ * Footer: topic and one label on the left, due date and counts kept together on the right.
+ * Nothing is clipped: when the row would wrap, the label is dropped first; if it still does not
+ * fit, the counts move to a second line.
+ */
+function CardFoot({ it }) {
+  const ref = useRef(null);
+  const [dropLabel, setDropLabel] = useState(false);
+  const label = it.labels[0];
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || dropLabel || !label) return;
+    const kids = el.children;
+    if (kids.length > 1 && kids[kids.length - 1].offsetTop > kids[0].offsetTop + 2) setDropLabel(true);
+  });
+  const meta = it.due || it.children || it.attachment_count || it.comment_count;
+  if (!it.topic && !label && !meta) return null;
+  return html`<div class="card-foot" ref=${ref}>
+    <${TopicChip} path=${it.topic} link=${false} />
+    ${label && !dropLabel ? html`<${LabelChip} label=${label} />` : null}
+    ${meta ? html`<span class="card-meta">
       <${DueChip} due=${it.due} status=${it.status} />
       ${it.children ? html`<span class="meta-ico" title=${plural(it.children, 'sub-issue')}><${Icon} name="list-tree" size=${12} />${it.children}</span>` : null}
       ${it.attachment_count ? html`<span class="meta-ico" title=${plural(it.attachment_count, 'attachment')}><${Icon} name="paperclip" size=${12} />${it.attachment_count}</span>` : null}
       ${it.comment_count ? html`<span class="meta-ico" title=${plural(it.comment_count, 'comment')}><${Icon} name="message-square" size=${12} />${it.comment_count}</span>` : null}
-    </div>
-  </a>`;
+    </span>` : null}
+  </div>`;
 }
