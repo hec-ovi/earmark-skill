@@ -455,7 +455,7 @@ def render_comments(page: dict, *, key: str | None = None, since: int | None = N
     last = page.get("last_id") or items[-1].get("id")
     foot = [f"last: #{last}", plural(len(items), "comment")]
     if page.get("has_more"):
-        foot.append(f"more: --since {last}")
+        foot.append("more: --new" if new else f"more: --since {last}")
     out.append(SEP.join(foot))
     return "\n".join(out)
 
@@ -471,7 +471,8 @@ def render_inbox(page: dict, *, peek: bool = False, style: Style = PLAIN) -> str
     last = page.get("last_id") or items[-1].get("id")
     foot = [f"last: #{last}", plural(len(items), "comment")]
     if page.get("has_more"):
-        foot.append("more: earmark inbox --peek" if peek else "more: earmark inbox")
+        # --peek leaves the cursor, so the same call would repeat this page
+        foot.append(f"more: --peek --limit {2 * len(items)}" if peek else "more: earmark inbox")
     out.append(SEP.join(foot))
     return "\n".join(out)
 

@@ -149,6 +149,8 @@ class CommentTests(unittest.TestCase):
         page = {"items": COMMENTS, "last_id": 1190, "has_more": True}
         self.assertEqual(R.render_comments(page).splitlines()[-1],
                          "last: #1190 · 2 comments · more: --since 1190")
+        self.assertEqual(R.render_comments(page, new=True).splitlines()[-1],
+                         "last: #1190 · 2 comments · more: --new")
         empty = {"items": [], "last_id": 1190, "has_more": False}
         self.assertEqual(R.render_comments(empty, new=True), "comments: nothing new after #1190")
         self.assertEqual(R.render_comments({"items": [], "last_id": None}, since=7),
@@ -167,6 +169,8 @@ class CommentTests(unittest.TestCase):
         out = R.render_inbox(page).splitlines()
         self.assertEqual(out[0], "GAME-42  #1187  claude-ui  progress  2026-11-03T14:05:09Z")
         self.assertEqual(out[-1], "last: #1190 · 2 comments · more: earmark inbox")
+        self.assertEqual(R.render_inbox(page, peek=True).splitlines()[-1],
+                         "last: #1190 · 2 comments · more: --peek --limit 4")
         self.assertEqual(R.render_inbox({"items": [], "cursor": 1190, "last_id": None}),
                          "inbox: nothing new after #1190")
         self.assertEqual(R.render_inbox({"items": [], "cursor": 0}), "inbox: nothing new")
