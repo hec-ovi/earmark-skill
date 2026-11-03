@@ -222,7 +222,21 @@ LS_COLUMNS: dict[str, tuple[str, Callable[[dict], Any]]] = {
     "stale": ("STALE", lambda i: i.get("stale")),
     "created_at": ("CREATED", lambda i: i.get("created_at")),
     "updated_at": ("UPDATED", lambda i: i.get("updated_at")),
+    # the rest of show's scalars; ls asks the board for them (list_issues extra=LS_EXTRA[...])
+    "started_at": ("STARTED", lambda i: i.get("started_at")),
+    "review_requested_at": ("REVIEW_REQUESTED", lambda i: i.get("review_requested_at")),
+    "resolved_at": ("RESOLVED", lambda i: i.get("resolved_at")),
+    "new_comments": ("NEW", lambda i: i.get("new_comments")),
+    "blocks": ("BLOCKS", lambda i: ",".join(_links(i, "blocks"))),
+    "blocked_by": ("BLOCKED_BY", lambda i: ",".join(_links(i, "blocked_by"))),
+    "duplicates": ("DUPLICATES", lambda i: ",".join(_links(i, "duplicates"))),
+    "duplicated_by": ("DUPLICATED_BY", lambda i: ",".join(_links(i, "duplicated_by"))),
+    "relates": ("RELATES", lambda i: ",".join(_links(i, "relates"))),
 }
+LS_EXTRA = {"started_at": "started_at", "review_requested_at": "review_requested_at",
+            "resolved_at": "resolved_at", "new_comments": "new_comments",
+            **{name: "links" for name in ("blocks", "blocked_by", "duplicates", "duplicated_by",
+                                          "relates")}}
 LS_INTERNAL = {"waiting"}   # triage-only column
 LS_ALIASES = {"prio": "priority", "comments": "comment_count", "c": "comment_count",
               "created": "created_at", "updated": "updated_at", "lease": "lease_until",

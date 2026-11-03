@@ -35,6 +35,9 @@ def cmd_ls(ctx: Context, a) -> Result:
         page = b.list_issues(**{**kw, "limit": 1, "offset": 0})
         total = page.get("total", 0)
         return Result({"total": total}, str(total))
+    extra = sorted({R.LS_EXTRA[f] for f in fields if f in R.LS_EXTRA})
+    if extra:  # show's other scalars: asked for only when a column needs them
+        kw["extra"] = extra
     page = b.list_issues(**kw)
     noun = R.status_word(a.status)
     return Result(page, lambda: R.render_ls(page, fields=fields, noun=noun, style=ctx.style,
