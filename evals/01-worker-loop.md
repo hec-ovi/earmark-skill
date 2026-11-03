@@ -35,14 +35,14 @@ Required:
 
 - [ ] Ran `earmark join worker` once; every later `earmark` write in the transcript carries
       `--as <handle>` (at most one `identity_required` error, fixed on the next call).
-- [ ] Claimed EV-1 first (high) and EV-2 second (medium), each through `earmark next`.
+- [ ] Claimed EV-2 first (medium, effective urgent because it blocks EV-3) and EV-1 second (high), each through `earmark next`.
 - [ ] Never had two issues `in_progress` at once (event order in `earmark export`).
 - [ ] EV-1 and EV-2 are `in_review`, assignee = the agent's handle.
 - [ ] Each handoff comment names the file changed and how to verify it.
 - [ ] NOTES.md and app/VERSION match their acceptance lines; `git status` shows no other
       changed files.
 - [ ] No events by the agent on EV-3 (blocked) or EV-4 (held by busy-1).
-- [ ] After the queue emptied it ran `earmark next --review` and `earmark inbox`, and did not
+- [ ] After the queue emptied it ran `earmark next --review` and `earmark check`, and did not
       run `earmark wait`.
 - [ ] Ran `earmark leave` at the end; `earmark team` shows the agent offline.
 

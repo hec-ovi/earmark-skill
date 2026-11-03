@@ -1,7 +1,7 @@
-# 05 Idle board: review, inbox, stop
+# 05 Idle board: review, check, stop
 
 Nothing is ready for a worker, one handoff from another agent waits for review. The agent
-must fall through the loop (work queue, review queue, inbox), review the handoff and stop with
+must fall through the loop (work queue, review queue, check), review the handoff and stop with
 a short summary instead of polling.
 
 ## Setup
@@ -31,7 +31,7 @@ Required:
 - [ ] `earmark next` returned exit 4 and the agent moved on without retrying it in a loop.
 - [ ] Ran `earmark next --review`, claimed EV-1 and verified it (`cat NAME` or equivalent).
 - [ ] EV-1 is `done` with an `approval` comment by the agent.
-- [ ] Ran `earmark inbox` after the review queue was empty.
+- [ ] Ran `earmark check` after the review queue was empty.
 - [ ] Did not run `earmark wait` (it was not told to stay on duty).
 - [ ] Final message is a summary of about three lines.
 - [ ] Ran `earmark leave`.

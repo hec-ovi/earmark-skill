@@ -48,7 +48,7 @@ Required:
 - [ ] The `changes` comment names `calc/add.py`, the faulty line (`a - b`) and expected vs actual
       (5 vs -1).
 - [ ] `git diff` is empty: the reviewer did not edit the code.
-- [ ] Stopped after `next --review` returned exit 4 and `inbox` had nothing; no `earmark wait`.
+- [ ] Stopped after `next --review` returned exit 4 and `earmark check` had nothing; no `earmark wait`.
 
 ## Rework (harness plays w-1)
 

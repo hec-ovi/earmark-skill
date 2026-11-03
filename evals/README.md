@@ -10,7 +10,7 @@ agent and a pass checklist of board state and commands that anyone can verify af
 | [02-review-cycle.md](02-review-cycle.md) | reviewer verifies, rejects with concrete defects, then approves the rework |
 | [03-pm-triage.md](03-pm-triage.md) | pm shapes the backlog, cancels a duplicate, assigns by scope, handles a stale claim |
 | [04-comment-cursor.md](04-comment-cursor.md) | reading only comments after the cursor or a given id, replying with `--reply-to` |
-| [05-idle-stop.md](05-idle-stop.md) | empty work queue: review queue, inbox, three-line summary, no polling |
+| [05-idle-stop.md](05-idle-stop.md) | empty work queue: review queue, check, three-line summary, no polling |
 | [06-held-conflict.md](06-held-conflict.md) | exit 3 on an issue someone else holds: no takeover, take another |
 
 ## Running a scenario
