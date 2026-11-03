@@ -102,6 +102,11 @@ class CommentsMixin:
             raise InvalidRequest("limit must be at least 1")
         if new and since is not None:
             raise InvalidRequest("give either --since or --new, not both")
+        if new and last:
+            raise InvalidRequest("give either --new or --last, not both: --new advances your "
+                                 "cursor past every unread comment, --last would hide the rest",
+                                 hint=f"earmark comments {key} --new  (every unread comment), or "
+                                      f"--last N (the latest N; cursor untouched)")
         actor = self._need_actor() if new else None
         scope = None
         with self._read() as conn:

@@ -99,6 +99,13 @@ class Reading(BoardCase):
         with self.assertRaises(InvalidRequest):
             b.list_comments(self.key, since=1, new=True)
 
+    def test_new_and_last_together_are_refused(self):  # r09
+        with self.assertRaises(InvalidRequest) as ctx:
+            self.w1.list_comments(self.key, new=True, last=2)
+        self.assertIn("--last", ctx.exception.hint)
+        self.assertEqual(bodies(self.w1.list_comments(self.key, new=True)),
+                         ["c0", "c1", "c2", "c3", "c4"])  # nothing was skipped
+
     def test_new_advances_the_issue_cursor_and_skips_own(self):
         w1 = self.w1
         first = w1.list_comments(self.key, new=True, limit=3)
