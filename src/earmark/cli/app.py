@@ -16,7 +16,7 @@ if TYPE_CHECKING:  # annotations only; typing stays off the startup path
 
 from earmark.errors import EarmarkError, InternalError
 
-from earmark.cli.render import PLAIN, Style
+from earmark.cli.render import PLAIN, Style, escape_controls
 
 
 class Result:
@@ -193,7 +193,8 @@ def run(argv: list[str] | None = None) -> int:
         else:
             text = result.text() if callable(result.text) else result.text
             if text:
-                _write(sys.stdout if result.stream == "stdout" else sys.stderr, text)
+                _write(sys.stdout if result.stream == "stdout" else sys.stderr,
+                       escape_controls(text, color=ctx.style.color))
         return result.code
     except EarmarkError as e:
         return _fail(e, command, ctx, json_mode)
@@ -232,12 +233,12 @@ def _fail(e: EarmarkError, command: str, ctx: Context | None, json_mode: bool) -
         return e.exit_code
     if e.code == "empty":
         from earmark.cli.common import empty_text
-        _write(sys.stdout, empty_text(command, e, ctx))
+        _write(sys.stdout, escape_controls(empty_text(command, e, ctx)))
         return e.exit_code
     color = _isatty(sys.stderr) and not os.environ.get("NO_COLOR") and os.environ.get("TERM") != "dumb"
     style = Style(True) if color else PLAIN
     lines = [f"{style.paint('error:', '1;31')} {e.message}"]
     if e.hint:
         lines.append(f"{style.dim('hint:')} {e.hint}")
-    _write(sys.stderr, "\n".join(lines))
+    _write(sys.stderr, escape_controls("\n".join(lines), color=color))
     return e.exit_code

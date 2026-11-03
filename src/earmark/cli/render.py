@@ -56,10 +56,44 @@ class Style:
 PLAIN = Style(False)
 
 
+# ---- terminal safety -------------------------------------------------------------------
+
+# C0 except tab and newline, DEL and C1 print as visible `\xNN`, so text from the board
+# (titles, bodies, comments, names) cannot move the cursor, retitle the terminal or write the
+# clipboard. JSON output is not touched.
+CONTROL_ESCAPES = {c: f"\\x{c:02x}" for c in (*range(0x09), *range(0x0B, 0x20), *range(0x7F, 0xA0))}
+JSON_C1 = {c: f"\\u{c:04x}" for c in range(0x7F, 0xA0)}
+OWN_SGR = r"(\x1b\[(?:0|1|2|31|32|33|36|1;31)m)"   # the only sequences Style emits
+
+
+def escape_controls(text: str, *, color: bool = False) -> str:
+    """Final text for stdout/stderr. CRLF line ends become LF; with color on, Style's own
+    SGR codes stay and every other escape is shown."""
+    if "\r\n" in text:
+        text = text.replace("\r\n", "\n")
+    if not color or "\x1b" not in text:
+        return text.translate(CONTROL_ESCAPES)
+    import re
+    pieces = re.split(OWN_SGR, text)
+    return "".join(p if i % 2 else p.translate(CONTROL_ESCAPES) for i, p in enumerate(pieces))
+
+
+def json_text(text: str) -> str:
+    """JSON printed as text (export): DEL and C1, which json leaves raw, as \\u escapes."""
+    return text.translate(JSON_C1)
+
+
+def one_line(text: str) -> str:
+    """A value printed on one line (titles, cells): line breaks shown as \\n."""
+    if "\n" in text or "\r" in text:
+        return text.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\r")
+    return text
+
+
 # ---- small helpers ---------------------------------------------------------------------
 
 def dash(value: Any) -> str:
-    """Display value: '-' for empty, lists joined with ', '."""
+    """Display value: '-' for empty, lists joined with ', ', line breaks shown as \\n."""
     if value is None or value == "" or value == [] or value == ():
         return "-"
     if isinstance(value, bool):
@@ -68,7 +102,7 @@ def dash(value: Any) -> str:
         return ", ".join(dash(_key_of(v)) for v in value)
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
-    return str(value)
+    return one_line(str(value))
 
 
 def _key_of(v: Any) -> Any:
@@ -384,7 +418,7 @@ def render_show(issue: dict, *, style: Style = PLAIN, day: str | None = None) ->
     due = dash(issue.get("due"))
     if is_overdue(issue, day):
         due += " (overdue)"
-    head = f"{style.bold(issue.get('key', '?'))}  {issue.get('title', '')}"
+    head = f"{style.bold(issue.get('key', '?'))}  {one_line(str(issue.get('title') or ''))}"
     lines = [
         head,
         g.join([f"status: {style.status(dash(issue.get('status')))}",

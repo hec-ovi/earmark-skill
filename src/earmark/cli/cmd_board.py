@@ -104,7 +104,7 @@ def cmd_ui(ctx: Context, a) -> Result:
 
 def cmd_export(ctx: Context, a) -> Result:
     data = ctx.board().export()
-    return Result(data, lambda: dump_json(data, pretty=True))
+    return Result(data, lambda: R.json_text(dump_json(data, pretty=True)))
 
 
 def cmd_backup(ctx: Context, a) -> Result:
