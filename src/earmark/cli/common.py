@@ -56,7 +56,10 @@ def empty_text(command: str, e: EarmarkError, ctx: Context | None) -> str:
     """Exit-4 answer line for stdout. `next` gets its counts line from commands.md."""
     d = e.details if isinstance(e.details, dict) else {}
     if command == "next" and any(k in d for k in ("review_queue", "inbox", "stale")):
-        review = bool(ctx and getattr(ctx.ns, "review", False)) or d.get("mode") == "review"
+        if "mode" in d:
+            review = d.get("mode") == "review"
+        else:
+            review = bool(ctx and getattr(ctx.ns, "review", False))
         head = "next: nothing to review in your scope" if review else "next: nothing ready in your scope"
         return R.SEP.join([head, f"review queue: {d.get('review_queue', 0)}",
                            f"inbox: {d.get('inbox', 0)} new", f"stale: {d.get('stale', 0)}"])
