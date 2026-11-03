@@ -891,7 +891,7 @@ class UiSession:
                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, env=cli_env(),
                                      cwd=os.path.dirname(os.path.dirname(db)))
-        self.events = {"pings": 0, "changes": 0, "last_change": None, "bytes": 0}
+        self.events = {"pings": 0, "changes": 0, "last_change": None, "bytes": 0, "times": []}
         self.sock = None
         self.lifetime_written = None
         self.exit_seconds, self.killed = None, False
@@ -932,6 +932,7 @@ class UiSession:
                 elif b"event: change" in block:
                     self.events["changes"] += 1
                     self.events["last_change"] = time.monotonic()
+                    self.events["times"].append(self.events["last_change"])
 
     def io(self) -> dict | None:
         return proc_io(self.proc.pid)
@@ -979,8 +980,11 @@ def idle_check(args, db: str) -> dict:
         time.sleep(args.idle)
         io1, files1 = ui.io(), file_state(db)
         sec1 = sectors_written(stat_path)
-        window = time.monotonic() - t0
-        pings, changes_idle = ui.events["pings"], ui.events["changes"]
+        t1 = time.monotonic()
+        window = t1 - t0
+        pings = ui.events["pings"]
+        changes_idle = sum(1 for t in ui.events["times"] if t0 <= t <= t1)
+        changes_settle = sum(1 for t in ui.events["times"] if t < t0)
         # Liveness: one write by the owner must reach the open stream.
         before = ui.events["changes"]
         w = run([args.python, args.cli, "--db", db, "--as", "owner", "comment", "SOAK-1",
@@ -1002,6 +1006,7 @@ def idle_check(args, db: str) -> dict:
         "ui_syscr": io_delta(io0, io1, "syscr"),
         "partition_written": (sec1 - sec0) * 512 if sec0 is not None and sec1 is not None else None,
         "pings": pings, "changes_during_idle": changes_idle,
+        "changes_before_window": changes_settle,
         "liveness_write_exit": w["code"], "liveness_delivered": delivered,
         "liveness_latency_s": latency,
         "ok": unchanged and changes_idle == 0 and delivered and wrote in (0, None),
